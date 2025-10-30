@@ -197,22 +197,62 @@ function drawCountry(feature) {
     .attr('width', width)
     .attr('height', height);
 
-  // Create a projection that preserves north-up orientation and reduces
-  // distortion for countries far from the equator.  We use the Equal Earth
-  // projection (a pseudocylindrical, equal‑area projection) as provided by
-  // d3-geo-projection.  This projection keeps the central meridian and
-  // parallels as straight, horizontal/vertical lines, so north remains up
-  // and shapes are more recognizable even at high latitudes【159340284396829†L36-L48】.
-  const projection = d3.geoEqualEarth();
-  // Shift the projection’s central meridian to the country's centroid.  By
-  // rotating around the vertical (lambda) axis, we place the feature’s
-  // longitudinal center at longitude 0, which reduces the appearance of
-  // skew for high‑latitude countries while keeping north oriented up.
-  // Do not rotate the Equal Earth projection; keeping the default central meridian
-  // (Greenwich) avoids shape artifacts when animating outlines.  Previously we
-  // centered the country’s longitude, but that introduced undesirable star-like
-  // artifacts during animation.  The default orientation keeps north up and
-  // produces consistent shapes.
+  // Determine which projection to use based on the selected country.  Most
+  // countries are rendered with the Equal Earth projection (a pseudocylindrical,
+  // equal‑area projection) because it preserves north‑up orientation and
+  // produces recognizable shapes【159340284396829†L36-L48】.  However, some
+  // countries have parts far from the mainland—most notably the United
+  // States (Alaska and Hawaii) and Russia (the far east)—which makes the
+  // default projection overly wide.  For the United States we use the
+  // built‑in Albers USA composite projection, which repositions and scales
+  // Alaska and Hawaii so they fit neatly below the contiguous states.  For
+  // Russia we rotate the Equal Earth projection to center the country’s
+  // longitudinal midpoint, which tucks the far eastern territories closer
+  // to the rest of the nation.  All other countries use the unrotated
+  // Equal Earth projection.
+  let projection;
+  try {
+    const props = feature.properties || {};
+    // Normalized country name for matching presets
+    const normName = normalize(props.name || props.NAME || props.name_long || props.NAME_LONG || '');
+    const isoA3 = (props.iso_a3 || props.adm0_a3 || props.ADM0_A3 || '').toString().toUpperCase();
+    if (isoA3 === 'USA' || normName === 'united states' || normName === 'united states of america') {
+      // Use the Albers USA composite projection.  This projection relocates Alaska
+      // and Hawaii and scales them appropriately relative to the contiguous
+      // states.  It is part of the core d3-geo library.
+      projection = d3.geoAlbersUsa();
+    } else if (isoA3 === 'RUS' || normName === 'russia' || normName === 'russian federation') {
+      // For Russia, rotate the Equal Earth projection so that the country’s
+      // longitude midpoint sits at the prime meridian.  This reduces the
+      // apparent width by keeping the far eastern territories close to the
+      // mainland.  Compute the geographic bounds and average longitude to
+      // determine the centre.
+      const bounds = d3.geoBounds(feature);
+      const minLon = bounds[0][0];
+      const maxLon = bounds[1][0];
+      // If the geometry crosses the antimeridian, adjust the longitudes to
+      // produce a meaningful midpoint.  When maxLon < minLon (e.g. 170°E to
+      // -170°W), wrap the values into a 360° range by adding 360° to the
+      // negative longitude.
+      let midpoint;
+      if (maxLon < minLon) {
+        // Example: minLon = 170, maxLon = -170.  Convert maxLon to 190 to
+        // compute midpoint correctly ((170 + 190)/2 = 180).  After
+        // computing the midpoint, bring it back to the -180–180 range.
+        midpoint = (minLon + (maxLon + 360)) / 2;
+        if (midpoint > 180) midpoint -= 360;
+      } else {
+        midpoint = (minLon + maxLon) / 2;
+      }
+      projection = d3.geoEqualEarth().rotate([-midpoint, 0]);
+    } else {
+      // Default projection for most countries
+      projection = d3.geoEqualEarth();
+    }
+  } catch (e) {
+    // Fallback to equal earth if anything goes wrong
+    projection = d3.geoEqualEarth();
+  }
 
   // Fit the projection to the available drawing area with padding on all
   // sides.  The fitExtent method sets the projection’s scale and
@@ -220,14 +260,22 @@ function drawCountry(feature) {
   // [[padding, padding], [width − padding, height − padding]].  This keeps
   // the outline centered both horizontally and vertically with a margin
   // of space around it.
+  // Always fit the projection to the drawing area.  The fitExtent method
+  // adjusts the scale and translation so the geometry fills the available
+  // space with a 20 px margin on each side.  Even composite projections
+  // such as geoAlbersUsa can be fit using this method.  If the selected
+  // projection does not implement fitExtent (unlikely in d3 v7), this call
+  // will be ignored.
   const padding = 20;
-  projection.fitExtent(
-    [
-      [padding, padding],
-      [width - padding, height - padding],
-    ],
-    feature
-  );
+  if (typeof projection.fitExtent === 'function') {
+    projection.fitExtent(
+      [
+        [padding, padding],
+        [width - padding, height - padding],
+      ],
+      feature
+    );
+  }
 
   const path = d3.geoPath().projection(projection);
 
