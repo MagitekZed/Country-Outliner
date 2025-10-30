@@ -2,8 +2,11 @@
 //
 // This module loads Natural Earth datasets for countries and disputed
 // boundaries, sets up a simple autocomplete UI, and draws the selected
-// country's outline using an equal-area projection. Disputed border
-// segments are overlaid as dashed lines.
+// country's outline using the Equal Earth projection.  Equal Earth is an
+// equal‑area pseudocylindrical projection that keeps the parallels and
+// central meridian straight, preserving a north‑up orientation and
+// reducing distortion for countries far from the equator【159340284396829†L36-L48】.
+// Disputed border segments are overlaid as dashed lines.
 
 // D3 and d3-geo-projection are loaded globally via script tags in
 // index.html.  Access them through the global `d3` object.  The
@@ -166,9 +169,34 @@ function drawCountry(feature) {
     .attr('width', width)
     .attr('height', height);
 
-  // Create a projection centered on the country and sized to fit the container.
-  const projection = d3.geoAzimuthalEqualArea();
-  projection.fitSize([width, height], feature);
+  // Create a projection that preserves north-up orientation and reduces
+  // distortion for countries far from the equator.  We use the Equal Earth
+  // projection (a pseudocylindrical, equal‑area projection) as provided by
+  // d3-geo-projection.  This projection keeps the central meridian and
+  // parallels as straight, horizontal/vertical lines, so north remains up
+  // and shapes are more recognizable even at high latitudes【159340284396829†L36-L48】.
+  const projection = d3.geoEqualEarth();
+  // Shift the projection’s central meridian to the country's centroid.  By
+  // rotating around the vertical (lambda) axis, we place the feature’s
+  // longitudinal center at longitude 0, which reduces the appearance of
+  // skew for high‑latitude countries while keeping north oriented up.
+  const centroid = d3.geoCentroid(feature);
+  projection.rotate([-centroid[0], 0]);
+
+  // Fit the projection to the available drawing area with padding on all
+  // sides.  The fitExtent method sets the projection’s scale and
+  // translation so that the feature occupies the rectangle defined by
+  // [[padding, padding], [width − padding, height − padding]].  This keeps
+  // the outline centered both horizontally and vertically with a margin
+  // of space around it.
+  const padding = 20;
+  projection.fitExtent(
+    [
+      [padding, padding],
+      [width - padding, height - padding],
+    ],
+    feature
+  );
 
   const path = d3.geoPath().projection(projection);
 
