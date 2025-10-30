@@ -75,6 +75,19 @@ body {
   font-size: 0.85rem;
 }
 
+/* Fill toggle label */
+.fill-label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+/* Range slider for animation duration */
+.control-panel input[type="range"] {
+  width: 140px;
+}
+
 /* Suggestion dropdown */
 /* Suggestion dropdown anchored to the input wrapper */
 .suggestions {

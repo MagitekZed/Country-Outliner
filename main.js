@@ -108,6 +108,13 @@ function setupInput() {
   const backgroundColorEl = document.getElementById('background-color');
   const animateEl = document.getElementById('animate-outline');
 
+  // Additional controls for fill, line style and animation duration
+  const fillEnabledEl = document.getElementById('fill-enabled');
+  const fillColorEl = document.getElementById('fill-color');
+  const lineStyleEl = document.getElementById('line-style');
+  const animDurationEl = document.getElementById('animation-duration');
+  const durationDisplayEl = document.getElementById('duration-display');
+
   // Apply initial background colour
   drawingContainer.style.backgroundColor = backgroundColorEl.value;
 
@@ -115,6 +122,10 @@ function setupInput() {
   function handleStyleChange() {
     // Update the container background immediately for background colour changes
     drawingContainer.style.backgroundColor = backgroundColorEl.value;
+    // Update the animation duration display
+    if (durationDisplayEl) {
+      durationDisplayEl.textContent = animDurationEl.value + 's';
+    }
     if (currentFeature) {
       drawCountry(currentFeature);
     }
@@ -123,6 +134,12 @@ function setupInput() {
   strokeColorEl.addEventListener('input', handleStyleChange);
   backgroundColorEl.addEventListener('input', handleStyleChange);
   animateEl.addEventListener('change', handleStyleChange);
+
+  // Wire up new style controls
+  if (fillEnabledEl) fillEnabledEl.addEventListener('change', handleStyleChange);
+  if (fillColorEl) fillColorEl.addEventListener('input', handleStyleChange);
+  if (lineStyleEl) lineStyleEl.addEventListener('change', handleStyleChange);
+  if (animDurationEl) animDurationEl.addEventListener('input', handleStyleChange);
 }
 
 /**
@@ -294,30 +311,120 @@ function drawCountry(feature) {
   // Update background colour of the drawing container
   drawingContainer.style.backgroundColor = backgroundColorEl.value;
 
-  // Append the main outline path
-  const mainPath = svg
-    .append('path')
-    .datum(feature)
-    .attr('d', path)
-    .attr('stroke', strokeColor)
-    .attr('stroke-width', outlineWidth)
-    .attr('fill', 'none');
+  // Prepare to draw multiple polygons separately so that animation
+  // applies uniformly across all components (mainland and islands).
+  const lineStyleEl = document.getElementById('line-style');
+  const fillEnabledEl = document.getElementById('fill-enabled');
+  const fillColorEl = document.getElementById('fill-color');
+  const animDurationEl = document.getElementById('animation-duration');
 
-  // If animation is enabled, draw the outline gradually over 20 seconds.
-  if (animate) {
-    const length = mainPath.node().getTotalLength();
-    mainPath
-      .attr('stroke-dasharray', length)
-      .attr('stroke-dashoffset', length)
-      .transition()
-      .duration(20000)
-      .ease(d3.easeLinear)
-      .attr('stroke-dashoffset', 0)
-      .on('end', () => {
-        // Remove dash attributes after animation finishes for a clean outline
-        mainPath.attr('stroke-dasharray', null).attr('stroke-dashoffset', null);
-      });
+  // Determine line pattern based on the selected line style.  Solid lines
+  // have no dash pattern, dashed lines use a medium pattern, and dotted
+  // lines use a small pattern.  The pattern is applied after the
+  // animation completes so that the animation can reuse the dash array
+  // without interference.
+  let linePattern = null;
+  const styleValue = lineStyleEl ? lineStyleEl.value : 'solid';
+  if (styleValue === 'dashed') {
+    linePattern = '8,4';
+  } else if (styleValue === 'dotted') {
+    linePattern = '2,4';
   }
+
+  // Determine fill for the outline.  If fill is not enabled, use 'none'.
+  const fillEnabled = fillEnabledEl ? fillEnabledEl.checked : false;
+  const fillColor = fillColorEl ? fillColorEl.value : '#000000';
+  const effectiveFill = fillEnabled ? fillColor : 'none';
+
+  // Determine animation duration in milliseconds.  Slider value is in
+  // seconds, so multiply by 1000.  Fall back to 20 seconds if slider is
+  // missing or invalid.
+  let durationMs = 20000;
+  if (animDurationEl && !isNaN(animDurationEl.value)) {
+    const val = parseFloat(animDurationEl.value);
+    if (!isNaN(val)) durationMs = val * 1000;
+  }
+
+  // Extract individual polygons from the selected feature.  MultiPolygon
+  // geometries contain multiple arrays of linear rings; we convert each
+  // component into its own Polygon geometry for separate rendering.
+  const polys = [];
+  const geom = feature.geometry;
+  if (geom) {
+    if (geom.type === 'Polygon') {
+      polys.push(geom);
+    } else if (geom.type === 'MultiPolygon') {
+      geom.coordinates.forEach((coords) => {
+        polys.push({ type: 'Polygon', coordinates: coords });
+      });
+    }
+  }
+
+  // Create an SVG path for each polygon.  We first append the path
+  // elements to compute their lengths, then we assign stroke, fill and
+  // animation properties afterwards.
+  const pathElements = [];
+  const lengths = [];
+  polys.forEach((poly) => {
+    // Compute a path string explicitly for this polygon.  Passing a
+    // function directly as the 'd' attribute can cause issues when the
+    // datum is a bare geometry rather than a full feature, so we call
+    // the path generator to obtain the string.
+    const dString = path(poly);
+    const p = svg.append('path').attr('d', dString);
+    pathElements.push(p);
+    // Compute total length for animation.  Some browsers may throw if
+    // getTotalLength() is called on an element that is not yet rendered;
+    // wrapping in try/catch to be safe.
+    let len = 0;
+    try {
+      len = p.node().getTotalLength();
+    } catch (e) {
+      len = 0;
+    }
+    lengths.push(len);
+  });
+  // Determine the maximum length across all polygon paths.  Using
+  // the maximum ensures that small islands animate over the entire
+  // duration rather than appearing instantly.
+  const maxLength = lengths.length ? Math.max(...lengths) : 0;
+
+  // Apply stroke, fill and animation settings to each polygon path.
+  pathElements.forEach((p, i) => {
+    p.attr('stroke', strokeColor)
+      .attr('stroke-width', outlineWidth)
+      .attr('fill', effectiveFill);
+    if (animate && maxLength > 0) {
+      // Use the same dash length for all polygons to synchronise
+      // animation timing.  After the animation ends, apply the
+      // selected line style pattern.
+      p.attr('stroke-dasharray', maxLength)
+        .attr('stroke-dashoffset', maxLength)
+        .transition()
+        .duration(durationMs)
+        .ease(d3.easeLinear)
+        .attr('stroke-dashoffset', 0)
+        .on('end', () => {
+          // Remove the animation dash attributes and apply the
+          // user-selected line pattern.  If no pattern is
+          // selected, clear the dasharray.
+          if (linePattern) {
+            p.attr('stroke-dasharray', linePattern);
+          } else {
+            p.attr('stroke-dasharray', null);
+          }
+          p.attr('stroke-dashoffset', null);
+        });
+    } else {
+      // If animation is disabled, apply the user-selected line
+      // pattern immediately.
+      if (linePattern) {
+        p.attr('stroke-dasharray', linePattern);
+      } else {
+        p.attr('stroke-dasharray', null);
+      }
+    }
+  });
 
   // Compute bounding box of the selected country in geographic coordinates.
   const featureBbox = d3.geoBounds(feature);
@@ -327,7 +434,9 @@ function drawCountry(feature) {
     intersects(featureBbox, d.bbox)
   );
 
-  // Draw dashed disputed segments
+  // Draw dashed disputed segments.  They are not animated and are
+  // slightly thinner than the main outline.  Always use a dashed
+  // pattern for disputed borders.
   svg
     .selectAll('path.disputed')
     .data(relevantLines.map((d) => d.feature))

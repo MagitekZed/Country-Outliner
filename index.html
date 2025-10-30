@@ -54,6 +54,25 @@
           <input type="checkbox" id="animate-outline" />
           Animate
         </label>
+
+        <!-- Fill toggle and color picker -->
+        <label class="fill-label">
+          <input type="checkbox" id="fill-enabled" /> Fill
+        </label>
+        <input id="fill-color" type="color" value="#ffffff" />
+
+        <!-- Line style selector -->
+        <label for="line-style">Line style:</label>
+        <select id="line-style">
+          <option value="solid" selected>Solid</option>
+          <option value="dashed">Dashed</option>
+          <option value="dotted">Dotted</option>
+        </select>
+
+        <!-- Animation duration slider -->
+        <label for="animation-duration">Animation time:</label>
+        <input id="animation-duration" type="range" min="5" max="30" step="1" value="20" />
+        <span id="duration-display">20s</span>
       </div>
       <div id="drawing-container" class="drawing-container">
         <!-- The SVG drawing will be injected here -->
