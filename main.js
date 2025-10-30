@@ -27,6 +27,10 @@ let disputedData; // GeoJSON FeatureCollection for disputed lines
 let precomputedDisputed = []; // array of {feature, bbox}
 let nameToFeature = new Map(); // maps normalized name to feature
 
+// Remember the currently selected country feature so that style changes
+// (stroke weight, colors, animation) can trigger a redraw without retyping.
+let currentFeature = null;
+
 // DOM references (initialised in init once the document is ready)
 let inputEl;
 let suggestionsEl;
@@ -97,6 +101,28 @@ function setupInput() {
       suggestionsEl.classList.remove('visible');
     }
   });
+
+  // Grab references to the style controls and set initial values
+  const strokeWeightEl = document.getElementById('stroke-weight');
+  const strokeColorEl = document.getElementById('stroke-color');
+  const backgroundColorEl = document.getElementById('background-color');
+  const animateEl = document.getElementById('animate-outline');
+
+  // Apply initial background colour
+  drawingContainer.style.backgroundColor = backgroundColorEl.value;
+
+  // Whenever any of the style controls change, redraw the current feature (if any)
+  function handleStyleChange() {
+    // Update the container background immediately for background colour changes
+    drawingContainer.style.backgroundColor = backgroundColorEl.value;
+    if (currentFeature) {
+      drawCountry(currentFeature);
+    }
+  }
+  strokeWeightEl.addEventListener('change', handleStyleChange);
+  strokeColorEl.addEventListener('input', handleStyleChange);
+  backgroundColorEl.addEventListener('input', handleStyleChange);
+  animateEl.addEventListener('change', handleStyleChange);
 }
 
 /**
@@ -151,6 +177,8 @@ function updateSuggestions(query) {
  */
 function selectCountry(feature) {
   drawCountry(feature);
+  // store the selected feature so that changing styles can re-render it
+  currentFeature = feature;
 }
 
 /**
@@ -180,8 +208,11 @@ function drawCountry(feature) {
   // rotating around the vertical (lambda) axis, we place the feature’s
   // longitudinal center at longitude 0, which reduces the appearance of
   // skew for high‑latitude countries while keeping north oriented up.
-  const centroid = d3.geoCentroid(feature);
-  projection.rotate([-centroid[0], 0]);
+  // Do not rotate the Equal Earth projection; keeping the default central meridian
+  // (Greenwich) avoids shape artifacts when animating outlines.  Previously we
+  // centered the country’s longitude, but that introduced undesirable star-like
+  // artifacts during animation.  The default orientation keeps north up and
+  // produces consistent shapes.
 
   // Fit the projection to the available drawing area with padding on all
   // sides.  The fitExtent method sets the projection’s scale and
@@ -201,13 +232,44 @@ function drawCountry(feature) {
   const path = d3.geoPath().projection(projection);
 
   // Draw the country outline
-  svg
+  // Determine user-selected stroke weight and colour
+  const strokeWeightEl = document.getElementById('stroke-weight');
+  const strokeColorEl = document.getElementById('stroke-color');
+  const animateEl = document.getElementById('animate-outline');
+  const backgroundColorEl = document.getElementById('background-color');
+  // Map stroke weight keywords to numeric stroke widths (in pixels)
+  const strokeMap = { light: 1, medium: 2, heavy: 3 };
+  const outlineWidth = strokeMap[strokeWeightEl.value] || 2;
+  const disputedWidth = outlineWidth * 0.66; // slightly thinner for disputed lines
+  const strokeColor = strokeColorEl.value || '#ffffff';
+  const animate = animateEl.checked;
+  // Update background colour of the drawing container
+  drawingContainer.style.backgroundColor = backgroundColorEl.value;
+
+  // Append the main outline path
+  const mainPath = svg
     .append('path')
     .datum(feature)
     .attr('d', path)
-    .attr('stroke', '#ffffff')
-    .attr('stroke-width', 1.5)
+    .attr('stroke', strokeColor)
+    .attr('stroke-width', outlineWidth)
     .attr('fill', 'none');
+
+  // If animation is enabled, draw the outline gradually over 20 seconds.
+  if (animate) {
+    const length = mainPath.node().getTotalLength();
+    mainPath
+      .attr('stroke-dasharray', length)
+      .attr('stroke-dashoffset', length)
+      .transition()
+      .duration(20000)
+      .ease(d3.easeLinear)
+      .attr('stroke-dashoffset', 0)
+      .on('end', () => {
+        // Remove dash attributes after animation finishes for a clean outline
+        mainPath.attr('stroke-dasharray', null).attr('stroke-dashoffset', null);
+      });
+  }
 
   // Compute bounding box of the selected country in geographic coordinates.
   const featureBbox = d3.geoBounds(feature);
@@ -225,7 +287,7 @@ function drawCountry(feature) {
     .attr('class', 'disputed')
     .attr('d', path)
     .attr('stroke', '#ff8080')
-    .attr('stroke-width', 1)
+    .attr('stroke-width', disputedWidth)
     .attr('stroke-dasharray', '4,3')
     .attr('fill', 'none');
 }

@@ -22,35 +22,66 @@ body {
   height: 100vh;
 }
 
+/* Control panel layout: horizontal flow with wrap */
 .control-panel {
-  padding: 1rem;
+  padding: 0.75rem 1rem;
   position: relative;
   background-color: #111;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
   z-index: 10;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
+/* Labels in the control panel */
 .control-panel label {
-  margin-right: 0.5rem;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
+/* Container for the input and suggestions */
+.input-wrapper {
+  position: relative;
+  flex: 1 1 200px;
+  min-width: 180px;
+}
+
+/* Text input styling */
 .control-panel input[type='text'] {
   width: 100%;
-  max-width: 400px;
-  padding: 0.5rem;
+  padding: 0.4rem;
   border-radius: 4px;
   border: none;
-  font-size: 1rem;
+  font-size: 0.95rem;
+  color: #000;
+  background-color: #fff;
+}
+
+/* Drop-down and color inputs */
+.control-panel select,
+.control-panel input[type='color'] {
+  padding: 0.3rem;
+  border-radius: 4px;
+  border: none;
+  font-size: 0.95rem;
+}
+
+/* Checkbox and its label */
+.animate-label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
 }
 
 /* Suggestion dropdown */
+/* Suggestion dropdown anchored to the input wrapper */
 .suggestions {
   position: absolute;
-  top: 3rem;
+  top: 100%;
   left: 0;
   width: 100%;
-  max-width: 400px;
   background-color: #222;
   border: 1px solid #333;
   border-radius: 4px;
@@ -58,6 +89,7 @@ body {
   overflow-y: auto;
   display: none;
   z-index: 20;
+  margin-top: 0.25rem;
 }
 
 .suggestions.visible {

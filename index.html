@@ -20,15 +20,40 @@
   <body>
     <div id="app">
       <div class="control-panel">
+        <!-- Country selector with suggestions -->
         <label for="country-input">Select a country:</label>
-        <input
-          id="country-input"
-          type="text"
-          autocomplete="off"
-          placeholder="Type a country name..."
-        />
-        <!-- Suggestion list will be populated dynamically -->
-        <div id="suggestions" class="suggestions"></div>
+        <div class="input-wrapper">
+          <input
+            id="country-input"
+            type="text"
+            autocomplete="off"
+            placeholder="Type a country name..."
+          />
+          <!-- Suggestion list will be populated dynamically -->
+          <div id="suggestions" class="suggestions"></div>
+        </div>
+
+        <!-- Stroke weight selector -->
+        <label for="stroke-weight">Stroke weight:</label>
+        <select id="stroke-weight">
+          <option value="light">Light</option>
+          <option value="medium" selected>Medium</option>
+          <option value="heavy">Heavy</option>
+        </select>
+
+        <!-- Stroke color picker -->
+        <label for="stroke-color">Stroke color:</label>
+        <input id="stroke-color" type="color" value="#ffffff" />
+
+        <!-- Background color picker -->
+        <label for="background-color">Background:</label>
+        <input id="background-color" type="color" value="#000000" />
+
+        <!-- Animation toggle -->
+        <label class="animate-label">
+          <input type="checkbox" id="animate-outline" />
+          Animate
+        </label>
       </div>
       <div id="drawing-container" class="drawing-container">
         <!-- The SVG drawing will be injected here -->
