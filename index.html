@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Country Outline Viewer</title>
+    <link rel="stylesheet" href="styles.css" />
+    <!--
+      Load D3 and the geo projection library from a CDN.  These
+      scripts expose their content on the global `d3` object.  The
+      application script (main.js) relies on this global and does not
+      use ES module imports.  Loading external scripts via <script>
+      tags avoids potential CORS issues that can arise when importing
+      ES modules from remote domains in a file:// context.
+    -->
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3-geo-projection@4"></script>
+    <script src="main.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <div class="control-panel">
+        <label for="country-input">Select a country:</label>
+        <input
+          id="country-input"
+          type="text"
+          autocomplete="off"
+          placeholder="Type a country name..."
+        />
+        <!-- Suggestion list will be populated dynamically -->
+        <div id="suggestions" class="suggestions"></div>
+      </div>
+      <div id="drawing-container" class="drawing-container">
+        <!-- The SVG drawing will be injected here -->
+      </div>
+    </div>
+  </body>
+</html>
