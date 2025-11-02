@@ -1,0 +1,171 @@
+/*
+ * Country Outliner v1.2.0 Stylesheet
+ *
+ * Provides a modern dark interface with responsive layout.
+ * On narrow screens, advanced controls collapse into a menu that can be toggled
+ * via the menu button. Controls share a consistent look with rounded corners,
+ * soft shadows and subtle borders for a polished feel. The map container
+ * automatically fills the remaining vertical space.
+ */
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: #0a0a0a;
+  color: #e0e0e0;
+}
+
+/* Hide by default until JS shows */
+.hidden {
+  display: none;
+}
+
+#compat-message {
+  background: #420000;
+  color: #fff;
+  padding: 16px;
+  border-radius: 6px;
+  margin: 20px;
+  font-size: 1rem;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Top bar styling */
+.top-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background: #111;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+  z-index: 10;
+}
+
+/* Menu toggle hidden on wide screens */
+.menu-toggle {
+  display: none;
+  font-size: 1.4rem;
+  background: none;
+  border: none;
+  color: #e0e0e0;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+}
+
+.control-group input[type="text"],
+.control-group input[type="color"],
+.control-group select,
+.control-group input[type="range"] {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #e0e0e0;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+  outline: none;
+  min-width: 120px;
+}
+
+.control-group input[type="color"] {
+  padding: 0;
+  width: 40px;
+  height: 28px;
+  cursor: pointer;
+  border: none;
+}
+
+.control-group input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #00ffff;
+  cursor: pointer;
+}
+
+.control-group input[type="range"] {
+  width: 100px;
+  cursor: pointer;
+}
+
+.control-group span {
+  font-size: 0.8rem;
+  margin-left: 4px;
+}
+
+/* Map container fills remaining space */
+#map-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Advanced controls hidden on mobile; toggled via script */
+.advanced-hidden .advanced {
+  display: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 700px) {
+  .menu-toggle {
+    display: block;
+  }
+  .control-group {
+    flex: 1 1 100%;
+  }
+  .control-group input[type="text"] {
+    min-width: auto;
+  }
+}
+
+/* The datalist dropdown inherits our dark theme */
+input[list]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
+/* Slider custom styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: #333;
+  margin: 0;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #00ffff;
+  cursor: pointer;
+  box-shadow: 0 0 2px rgba(0,0,0,0.6);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #00ffff;
+  cursor: pointer;
+  border: none;
+}
+
+/* Animations for glow flicker (used in Neon theme) */
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.95; }
+  90% { opacity: 0.98; }
+}

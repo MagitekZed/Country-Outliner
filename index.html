@@ -1,83 +1,83 @@
+<!--
+  Country Outliner v1.2.0
+
+  This version switches the rendering engine from SVG to PixiJS (WebGL).
+  It ships with a dark, responsive UI, three curated themes (Neon, Wireframe Glow and Blueprint)
+  and draws country outlines with a polished animation.  If WebGL is not
+  available the application displays a friendly message instead of falling
+  back to a second rendering engine.  See main.js for implementation details.
+-->
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Country Outline Viewer</title>
-    <link rel="stylesheet" href="styles.css" />
-    <!--
-      This version replaces the PixiJS renderer with a 2D canvas
-      drawing engine.  D3 is still used for geographic projections.
-      External scripts are loaded via CDN and exposed on the global
-      `d3` object.
-    -->
-    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-    <script src="https://cdn.jsdelivr.net/npm/d3-geo-projection@4"></script>
-    <script src="main.js"></script>
-  </head>
-  <body>
-    <div id="app">
-      <!-- Top bar: search and menu toggle for small screens -->
-      <div id="top-bar">
-        <div class="search-container">
-          <label for="country-input">Select a country:</label>
-          <div class="input-wrapper">
-            <input
-              id="country-input"
-              type="text"
-              autocomplete="off"
-              placeholder="Type a country name..."
-            />
-            <div id="suggestions" class="suggestions"></div>
-          </div>
-        </div>
-        <button id="menu-toggle" class="menu-toggle" aria-label="Menu">
-          &#9776;
-        </button>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Country Outliner</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- PixiJS library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/8.4.0/pixi.min.js" defer></script>
+  <!-- TopoJSON client to convert TopoJSON to GeoJSON -->
+  <script src="https://unpkg.com/topojson-client@3/dist/topojson-client.min.js" defer></script>
+  <!-- d3-geo for geographic projections and utilities -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-geo/3.0.3/d3-geo.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-geo-projection/4.0.0/d3-geo-projection.min.js" defer></script>
+  <!-- Glow and drop shadow filters for Pixi -->
+  <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-glow@5.1.1/dist/filter-glow.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-drop-shadow@5.1.1/dist/filter-drop-shadow.min.js" defer></script>
+  <!-- Our main script -->
+  <script src="main.js" defer></script>
+</head>
+<body>
+  <!-- Message shown when WebGL is not supported -->
+  <div id="compat-message" class="hidden">
+    <p>Your browser doesn't support WebGL, which is required for the enhanced
+    visual effects in this application. Please try the latest version of Chrome,
+    Firefox, Safari or Edge.</p>
+  </div>
+  <!-- Main app container -->
+  <div id="app" class="hidden">
+    <header class="top-bar">
+      <!-- Menu toggle for small screens -->
+      <button id="menu-toggle" class="menu-toggle" aria-label="Toggle menu">☰</button>
+      <!-- Country search -->
+      <div class="control-group">
+        <label for="country-input">Country</label>
+        <input id="country-input" type="text" placeholder="Select a country" list="countries-list" autocomplete="off">
+        <datalist id="countries-list"></datalist>
       </div>
-      <!-- Controls panel -->
-      <div id="controls" class="controls">
-        <div class="control-item">
-          <label for="theme-select">Theme</label>
-          <select id="theme-select">
-            <option value="wireframe" selected>Wireframe</option>
-            <option value="neon">Neon</option>
-            <option value="blueprint">Blueprint</option>
-          </select>
-        </div>
-        <div class="control-item toggle-item">
-          <label for="animate-outline">Animate</label>
-          <label class="switch">
-            <input type="checkbox" id="animate-outline" />
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="control-item toggle-item">
-          <label for="perf-mode">Performance mode</label>
-          <label class="switch">
-            <input type="checkbox" id="perf-mode" />
-            <span class="slider"></span>
-          </label>
-        </div>
-        <div class="control-item range-item">
-          <label for="animation-duration">Animation time</label>
-          <div class="range-wrapper">
-            <input
-              id="animation-duration"
-              type="range"
-              min="5"
-              max="30"
-              step="1"
-              value="20"
-            />
-            <span id="duration-display">20s</span>
-          </div>
-        </div>
+      <!-- Theme selector -->
+      <div class="control-group">
+        <label for="theme-select">Theme</label>
+        <select id="theme-select">
+          <option value="neon">Neon</option>
+          <option value="wireframe">Wireframe Glow</option>
+          <option value="blueprint">Blueprint</option>
+        </select>
       </div>
-      <!-- Drawing container: holds a 2D canvas -->
-      <div id="drawing-container" class="drawing-container">
-        <!-- Canvas inserted by main.js -->
+      <!-- Accent colour picker -->
+      <div class="control-group advanced">
+        <label for="accent-color">Accent</label>
+        <input id="accent-color" type="color" value="#00ffff">
       </div>
-    </div>
-  </body>
+      <!-- Animation toggle -->
+      <div class="control-group advanced">
+        <label for="animate-toggle">Animate</label>
+        <input id="animate-toggle" type="checkbox" checked>
+      </div>
+      <!-- Duration slider -->
+      <div class="control-group advanced">
+        <label for="duration-slider">Duration</label>
+        <input id="duration-slider" type="range" min="5" max="30" value="20" step="1">
+        <span id="duration-display">20s</span>
+      </div>
+      <!-- Performance mode toggle -->
+      <div class="control-group advanced">
+        <label for="perf-toggle">Performance</label>
+        <input id="perf-toggle" type="checkbox">
+      </div>
+    </header>
+    <!-- Map container -->
+    <div id="map-container"></div>
+  </div>
+</body>
 </html>
