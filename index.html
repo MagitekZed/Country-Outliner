@@ -1,73 +1,83 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Country Outliner</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Country Outliner v1.2.0</title>
     <link rel="stylesheet" href="styles.css" />
-    <!-- Third‑party libraries loaded via CDN.  
-         d3 and topojson are used for geographic data parsing and projection.  
-         PixiJS powers the high‑quality WebGL rendering and effects.  
-         Additional filters extend Pixi’s visual capabilities.  
-         Fuse.js provides fast fuzzy searching for the country list. -->
-    <script src="https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/pixi.js@7.3.0/dist/pixi.min.js"></script>
-    <!-- Load individual Pixi filter bundles.  The compiled files expose filter
-         constructors on PIXI.filters.  Using the base file names (filter‑*.min.js)
-         rather than pixi‑filters‑*.min.js avoids a constructor undefined error. -->
-    <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-glow@4.2.2/dist/filter-glow.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-bloom@4.2.2/dist/filter-bloom.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-drop-shadow@4.2.2/dist/filter-drop-shadow.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-color-matrix@4.2.2/dist/filter-color-matrix.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
-</head>
-<body>
-<div id="compat-message" class="hidden">Your browser doesn’t support WebGL. Please use a modern browser.</div>
-<div id="app">
-    <!-- Top bar containing the search box and menu toggle.  
-         On narrow screens the menu toggle becomes visible and exposes the rest of the controls. -->
-    <div id="top-bar">
-        <div id="search-container">
-            <label for="country-search">Country:</label>
-            <input id="country-search" type="text" placeholder="Type to search…" autocomplete="off" />
-            <div id="autocomplete"></div>
+    <!--
+      Load third‑party libraries from CDNs.  These scripts expose global
+      variables used by our custom code below.  D3 and TopoJSON handle
+      geodesic projection and data processing.  THREE.js powers the
+      GPU‑accelerated rendering.  THREE.MeshLine enables variable line
+      widths and dash patterns in WebGL without relying on deprecated
+      GL_LINE rendering.  Fuse.js performs fuzzy searching over country
+      names.  Tween.js makes animating numeric values straightforward.
+
+      Note: these resources are fetched at run time.  When hosting the
+      application offline or behind a restrictive network, you may need
+      to download and serve these files locally.
+    -->
+    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three.meshline@1.2.1/THREE.MeshLine.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tweenjs/tween.js@18.6.4/dist/tween.umd.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <!--
+        The control bar sits at the top of the application.  On wider
+        screens the controls display inline.  On small screens the
+        advanced controls are hidden behind a menu button to conserve
+        vertical space.  See styles.css for responsive behavior.
+      -->
+      <div id="controlPanel">
+        <div id="primaryControls" class="controls-row">
+          <label for="countryInput">Select a country:</label>
+          <input
+            type="text"
+            id="countryInput"
+            list="countriesList"
+            placeholder="Start typing…"
+            autocomplete="off"
+          />
+          <!-- datalist provides native auto‑complete suggestions -->
+          <datalist id="countriesList"></datalist>
+          <button id="menuToggle" aria-label="Toggle additional options">
+            ☰
+          </button>
         </div>
-        <!-- Hamburger toggle for small screens -->
-        <button id="menu-toggle" aria-label="Toggle controls">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="3" y="6" width="18" height="2" rx="1"></rect>
-                <rect x="3" y="11" width="18" height="2" rx="1"></rect>
-                <rect x="3" y="16" width="18" height="2" rx="1"></rect>
-            </svg>
-        </button>
+        <div id="secondaryControls" class="controls-row">
+          <label for="themeSelect">Theme:</label>
+          <select id="themeSelect">
+            <option value="wireframe">Wireframe Glow</option>
+            <option value="neon">Neon</option>
+            <option value="blueprint">Blueprint</option>
+          </select>
+          <label for="animateToggle" class="toggle-label">
+            <input type="checkbox" id="animateToggle" checked />
+            <span class="toggle-slider"></span>
+            Animate
+          </label>
+          <label for="durationSlider" class="range-label">
+            <span>Animation time: </span>
+            <input
+              type="range"
+              id="durationSlider"
+              min="5"
+              max="30"
+              value="15"
+              step="1"
+            />
+            <span id="durationValue">15s</span>
+          </label>
+        </div>
+      </div>
+      <!-- Canvas container for Three.js rendering -->
+      <div id="canvasContainer"></div>
     </div>
-    <!-- Control panel holds theme and animation settings.  
-         Its visibility is toggled on narrow viewports via the hamburger button. -->
-    <div id="control-panel">
-        <div class="control-group">
-            <label for="theme-select">Theme:</label>
-            <select id="theme-select"></select>
-        </div>
-        <div class="control-group palette-group">
-            <label for="palette-select">Palette:</label>
-            <select id="palette-select"></select>
-        </div>
-        <div class="control-group anim-group">
-            <label class="checkbox-label">
-                <input type="checkbox" id="animate-checkbox" checked />
-                Animate
-            </label>
-            <label class="duration-label" for="duration-slider">
-                Duration: <span id="duration-value">20</span>s
-            </label>
-            <input type="range" id="duration-slider" min="5" max="30" value="20" />
-        </div>
-    </div>
-    <!-- Container for the map/drawing.  
-         PixiJS will insert a canvas element into this container. -->
-    <div id="map-container"></div>
-</div>
-<script src="app.js"></script>
-</body>
+    <script src="main.js" type="module"></script>
+  </body>
 </html>

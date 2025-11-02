@@ -1,584 +1,607 @@
 /*
- * Country Outliner v1.2.1
+ * main.js – entry point for Country Outliner v1.2.0
  *
- * This script bootstraps the PixiJS-based renderer, loads geographic data,
- * builds the user interface, and orchestrates drawing animated country
- * outlines.  Themes are defined at the bottom of this file; each one
- * encapsulates styling and filter configuration for different visual
- * aesthetics.  The engine requires WebGL; when unsupported a fallback
- * message is displayed instead of attempting to draw via Canvas or SVG.
+ * This file sets up the data loading, projection logic, Three.js
+ * scene, UI bindings and theme system.  It uses D3 for geo
+ * projection, TopoJSON for efficient boundary storage, THREE.js for
+ * rendering and MeshLine for variable‑width outlines.  Fuse.js
+ * provides fuzzy searching of country names and tween.js makes
+ * animating numeric values straightforward.
  */
 
-(() => {
-  // Alias mapping for common country synonyms. Keys are lower-cased for
-  // comparison. Values correspond to the canonical Natural Earth names in
-  // the dataset. Extend this mapping to support more informal names.
-  const aliasMapping = {
-    "usa": "United States of America",
-    "us": "United States of America",
-    "united states": "United States of America",
-    "united states of america": "United States of America",
-    "u.s.": "United States of America",
-    "uk": "United Kingdom",
-    "great britain": "United Kingdom",
-    "britain": "United Kingdom",
-    "russia": "Russia",
-    "czech republic": "Czechia",
-    "ivory coast": "Côte d’Ivoire",
-    "cote d'ivoire": "Côte d’Ivoire",
-    "south korea": "South Korea",
-    "north korea": "North Korea",
-    "uae": "United Arab Emirates",
-    "vatican": "Vatican",
-    "vatican city": "Vatican",
-    "drc": "Dem. Rep. Congo",
-    "democratic republic of the congo": "Dem. Rep. Congo",
-    "swaziland": "eSwatini",
-    "eswatini": "eSwatini",
-    "laos": "Laos",
-    "bolivia": "Bolivia",
-    "venezuela": "Venezuela",
-    "tanzania": "Tanzania"
-  };
+const d3Geo = window.d3;
+const topojson = window.topojson;
+const THREE = window.THREE;
+const MeshLine = window.MeshLine || window.THREE.MeshLine;
+const MeshLineMaterial = window.MeshLineMaterial || window.THREE.MeshLineMaterial;
+const Tween = window.TWEEN;
 
-  // Grab DOM references
-  const compatMessage = document.getElementById('compat-message');
-  const appContainer = document.getElementById('app');
-  const mapContainer = document.getElementById('map-container');
-  const countryInput = document.getElementById('country-input');
-  const countriesList = document.getElementById('countries-list');
-  const themeSelect = document.getElementById('theme-select');
-  const accentInput = document.getElementById('accent-color');
-  const animateToggle = document.getElementById('animate-toggle');
-  const durationSlider = document.getElementById('duration-slider');
-  const durationDisplay = document.getElementById('duration-display');
-  const perfToggle = document.getElementById('perf-toggle');
-  const menuToggle = document.getElementById('menu-toggle');
-  const topBar = document.querySelector('.top-bar');
-
-  // App state
-  const state = {
-    features: [],       // loaded GeoJSON country features
-    app: null,          // PIXI.Application instance
-    strokeContainer: null,
-    fillContainer: null,
-    maskGraphics: null,
-    currentRings: [],
-    animationFrame: null,
-    startTime: null,
-    duration: 20000,    // milliseconds; updated from slider
-    animate: true,
-    perfMode: false,
-    theme: null,        // current theme object
-    accentColor: accentInput ? accentInput.value : '#00ffff',
-    projection: null,
-    currentFeature: null
-  };
-
-  // Define themes.  Each theme defines functions to apply filters and style
-  // properties to the stroke container, to update per-frame state (tick)
-  // and to finalise after animation completes (complete).  When adding
-  // additional themes keep the method signatures consistent.
-  const themes = {
-    neon: {
-      name: 'Neon',
-      apply(context) {
-        const { strokeContainer, accentColor } = context;
-        // Set blend mode to additive so glows accumulate
-        strokeContainer.blendMode = PIXI.BLEND_MODES.ADD;
-        // Create glow filter with accent colour
-        const color = PIXI.utils.string2hex(accentColor);
-        const glow = new PIXI.filters.GlowFilter({
-          distance: 20,
-          outerStrength: 4,
-          innerStrength: 0,
-          color
-        });
-        strokeContainer.filters = [glow];
-        // Slight flicker by modifying alpha in tick
-        context._flickerPhase = 0;
-      },
-      tick(context, progress) {
-        // Random flicker around 0.98–1.0 to simulate neon flicker
-        if (!context.animate) return;
-        if (context._flickerPhase === undefined) context._flickerPhase = 0;
-        context._flickerPhase += 0.1;
-        if (context._flickerPhase > 1) context._flickerPhase = 0;
-        const jitter = 0.98 + Math.random() * 0.03;
-        context.strokeContainer.alpha = jitter;
-      },
-      complete(context) {
-        context.strokeContainer.alpha = 1;
-        // Keep glow active after animation
-      }
+// Theme definitions.  Each theme describes how to assemble one or
+// more line meshes for the outline and may spawn particles on
+// animation frames.  Themes can be extended in future releases.
+const THEMES = {
+  wireframe: {
+    name: 'Wireframe Glow',
+    background: '#0a0a0a',
+    colors: ['#00bfff'],
+    lineWidths: [1.5, 6, 12],
+    opacities: [1.0, 0.5, 0.2],
+    blending: [THREE.NormalBlending, THREE.AdditiveBlending, THREE.AdditiveBlending],
+    particle: {
+      color: 0x00bfff,
+      size: 2,
+      max: 80,
+      speed: 0.6,
+      lifetime: 0.9,
     },
-    wireframe: {
-      name: 'Wireframe Glow',
-      apply(context) {
-        const { strokeContainer, accentColor } = context;
-        strokeContainer.blendMode = PIXI.BLEND_MODES.NORMAL;
-        // More subtle glow
-        const color = PIXI.utils.string2hex(accentColor);
-        const glow = new PIXI.filters.GlowFilter({
-          distance: 10,
-          outerStrength: 1.5,
-          innerStrength: 0,
-          color
-        });
-        strokeContainer.filters = [glow];
-      },
-      tick(context, progress) {
-        // No per-frame updates necessary
-      },
-      complete(context) {
-        // Nothing extra on completion
-      }
+  },
+  neon: {
+    name: 'Neon',
+    background: '#000000',
+    colors: ['#00ffff'],
+    // Outer glows use thicker lines with additive blending
+    lineWidths: [2.5, 8, 16],
+    opacities: [1.0, 0.7, 0.3],
+    blending: [THREE.NormalBlending, THREE.AdditiveBlending, THREE.AdditiveBlending],
+    particle: {
+      color: 0x00ffff,
+      size: 3,
+      max: 120,
+      speed: 0.8,
+      lifetime: 1.2,
     },
-    blueprint: {
-      name: 'Blueprint',
-      apply(context) {
-        const { strokeContainer, fillContainer, accentColor } = context;
-        // Use normal blending and drop shadow to simulate blueprint lines
-        strokeContainer.blendMode = PIXI.BLEND_MODES.NORMAL;
-        const color = PIXI.utils.string2hex(accentColor);
-        // Drop shadow filter for blueprint effect
-        const drop = new PIXI.filters.DropShadowFilter({
-          distance: 4,
-          color,
-          alpha: 0.6,
-          blur: 3,
-          rotation: 45
-        });
-        strokeContainer.filters = [drop];
-        // Fill colour slightly transparent, using accent colour at 20% opacity
-        context.fillColor = accentColor + '33';
-      },
-      tick(context, progress) {
-        // No per-frame updates for blueprint
-      },
-      complete(context) {
-        // Fill appears on completion; handled outside
-      }
-    }
-  };
+  },
+  blueprint: {
+    name: 'Blueprint',
+    background: '#031e34',
+    colors: ['#ffffff'],
+    // Drop shadow effect simulated via multiple layers with slight offsets
+    lineWidths: [1.8, 3.6],
+    opacities: [1.0, 0.3],
+    blending: [THREE.NormalBlending, THREE.NormalBlending],
+    offsets: [0, 1.5], // pixel offsets in world units for blueprint shadow
+    particle: null, // blueprint has no particles
+  },
+};
 
-  // Utility: remove diacritics and lower-case for searching
-  function normalizeName(str) {
-    return str.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
-  }
+// Application state
+const state = {
+  world: null, // TopoJSON topology
+  features: [], // GeoJSON features
+  index: [], // Search index items { name, id, iso }
+  fuse: null, // Fuse.js instance for fuzzy searching
+  projection: null, // Current projection function
+  currentCountry: null, // Currently displayed feature
+  renderer: null,
+  scene: null,
+  camera: null,
+  lineGroup: null,
+  particleSystem: null,
+  animationTween: null,
+  animating: true,
+  animationDuration: 15000, // ms default
+  themeKey: 'wireframe',
+  mounted: false,
+  // DOM elements
+  countryInput: null,
+  countriesList: null,
+  themeSelect: null,
+  animateToggle: null,
+  durationSlider: null,
+  durationValue: null,
+  menuToggle: null,
+  primaryControls: null,
+  secondaryControls: null,
+};
 
-  // Initialize the application once DOMContentLoaded and scripts loaded
-  function init() {
-    // Check WebGL support
-    if (!PIXI.utils.isWebGLSupported()) {
-      compatMessage.classList.remove('hidden');
-      return;
-    }
-    compatMessage.classList.add('hidden');
-    appContainer.classList.remove('hidden');
+// Utility: convert hex colour string to THREE.Color
+function colorFromHex(hex) {
+  return new THREE.Color(hex);
+}
 
-    // Initialise PixiJS application and append to map container
-    state.app = new PIXI.Application({
-      resizeTo: mapContainer,
-      antialias: true,
-      backgroundAlpha: 0
+// Particle system for visual spark/ember effects.  Uses a
+// Points object updated every frame.  Spawn parameters come from
+// theme.particle.  Particles are recycled to avoid GC churn.
+class ParticleSystem {
+  constructor(scene, params) {
+    this.params = params;
+    this.particles = [];
+    this.geometry = new THREE.BufferGeometry();
+    this.positions = new Float32Array(params.max * 3);
+    this.alphas = new Float32Array(params.max);
+    this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+    this.geometry.setAttribute('alpha', new THREE.BufferAttribute(this.alphas, 1));
+    const material = new THREE.PointsMaterial({
+      size: params.size,
+      color: params.color,
+      transparent: true,
+      opacity: 1.0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexColors: false,
     });
-    mapContainer.appendChild(state.app.view);
-
-    // Create containers for stroke and fill
-    state.strokeContainer = new PIXI.Container();
-    state.fillContainer = new PIXI.Container();
-    state.app.stage.addChild(state.fillContainer);
-    state.app.stage.addChild(state.strokeContainer);
-
-    // Mask graphics (drawn per-frame)
-    state.maskGraphics = new PIXI.Graphics();
-
-    // Load geographic data
-    Promise.all([
-      fetch('https://unpkg.com/world-atlas@2.0.2/countries-50m.json').then(r => r.json()),
-      // Boundary lines for disputed borders (optional). Fetch failures are ignored.
-      fetch('https://d2ad6b4ur7yvpq.cloudfront.net/naturalearth-3.3.0/ne_50m_admin_0_boundary_lines_land.geojson')
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null)
-    ]).then(([topology, boundaries]) => {
-      // Convert TopoJSON to GeoJSON features
-      const geo = topojson.feature(topology, topology.objects.countries).features;
-      state.features = geo;
-      state.boundaries = boundaries;
-      buildCountryList();
-    });
-
-    // Event listeners
-    countryInput.addEventListener('change', onCountrySelected);
-    themeSelect.addEventListener('change', onThemeChange);
-    accentInput.addEventListener('input', onAccentChange);
-    animateToggle.addEventListener('change', onAnimateToggle);
-    durationSlider.addEventListener('input', onDurationChange);
-    perfToggle.addEventListener('change', onPerfToggle);
-    menuToggle.addEventListener('click', onMenuToggle);
-    window.addEventListener('resize', onResize);
-    // Update duration display initial
-    durationDisplay.textContent = durationSlider.value + 's';
-    // Set initial theme
-    state.theme = themes[themeSelect.value];
-    // Attempt to draw the first country if a value has been typed
-    // Note: drawCountry will be invoked when the user selects from the list.
-  }
-
-  // Build the datalist options based on loaded features and alias mapping
-  function buildCountryList() {
-    if (!countriesList) return;
-    // Clear existing options
-    countriesList.innerHTML = '';
-    const added = new Set();
-    state.features.forEach(f => {
-      const name = f.properties.name;
-      if (!added.has(name)) {
-        const option = document.createElement('option');
-        option.value = name;
-        countriesList.appendChild(option);
-        added.add(name);
-      }
-    });
-    // Add aliases
-    Object.keys(aliasMapping).forEach(alias => {
-      const canonical = aliasMapping[alias];
-      if (!added.has(alias)) {
-        const option = document.createElement('option');
-        option.value = alias;
-        countriesList.appendChild(option);
-      }
-    });
-  }
-
-  // Resolve the user input to a canonical feature name
-  function resolveCountryName(input) {
-    if (!input) return null;
-    const key = normalizeName(input.trim());
-    if (aliasMapping[key]) {
-      return aliasMapping[key];
-    }
-    // Try to find feature with matching name (case-insensitive, diacritics-insensitive)
-    for (const f of state.features) {
-      if (normalizeName(f.properties.name) === key) {
-        return f.properties.name;
-      }
-    }
-    return null;
-  }
-
-  // Called when a country is selected or input changes
-  function onCountrySelected() {
-    const inputVal = countryInput.value;
-    const canonical = resolveCountryName(inputVal);
-    if (!canonical) {
-      // No match; do nothing
-      return;
-    }
-    drawCountry(canonical);
-  }
-
-  // Apply theme change
-  function onThemeChange() {
-    const key = themeSelect.value;
-    state.theme = themes[key] || themes.neon;
-    if (state.currentFeature) {
-      drawCountry(state.currentFeature.properties.name);
+    this.points = new THREE.Points(this.geometry, material);
+    scene.add(this.points);
+    // Preallocate particle data
+    for (let i = 0; i < params.max; i++) {
+      this.particles.push({ active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, life: 0, age: 0 });
     }
   }
-
-  // Change accent color
-  function onAccentChange() {
-    state.accentColor = accentInput.value;
-    if (state.currentFeature) {
-      drawCountry(state.currentFeature.properties.name);
-    }
-  }
-
-  // Toggle animation
-  function onAnimateToggle() {
-    state.animate = animateToggle.checked;
-    if (state.currentFeature) {
-      drawCountry(state.currentFeature.properties.name);
-    }
-  }
-
-  // Update duration
-  function onDurationChange() {
-    const seconds = parseInt(durationSlider.value, 10);
-    state.duration = seconds * 1000;
-    durationDisplay.textContent = seconds + 's';
-    if (state.currentFeature) {
-      drawCountry(state.currentFeature.properties.name);
-    }
-  }
-
-  // Performance mode toggle
-  function onPerfToggle() {
-    state.perfMode = perfToggle.checked;
-    if (state.currentFeature) {
-      drawCountry(state.currentFeature.properties.name);
-    }
-  }
-
-  // Menu toggle for small screens
-  function onMenuToggle() {
-    topBar.classList.toggle('advanced-hidden');
-  }
-
-  // Window resize handler; re-fit current feature to new dimensions
-  function onResize() {
-    if (state.currentFeature) {
-      drawCountry(state.currentFeature.properties.name);
-    }
-  }
-
-  // Compute projection and ring data for a feature
-  function computeRings(feature) {
-    // Determine projection: special case for USA
-    let projection;
-    const name = feature.properties.name;
-    if (name === 'United States of America') {
-      projection = d3.geoAlbersUsa();
-    } else {
-      const centroid = d3.geoCentroid(feature);
-      const [clon] = centroid;
-      projection = d3.geoEqualEarth().rotate([-clon, 0]);
-    }
-    // Fit projection into map container with 20px padding
-    const width = mapContainer.clientWidth;
-    const height = mapContainer.clientHeight;
-    const padding = 20;
-    projection.fitExtent([[padding, padding], [width - padding, height - padding]], feature);
-    // Convert geometry to rings of projected points
-    const geo = feature.geometry;
-    const rings = [];
-    // Helper to process a polygon
-    function processPolygon(coords) {
-      coords.forEach((ringCoords) => {
-        const pts = ringCoords.map(coord => projection(coord));
-        // Compute segment lengths
-        let length = 0;
-        const segments = [];
-        for (let i = 0; i < pts.length - 1; i++) {
-          const dx = pts[i + 1][0] - pts[i][0];
-          const dy = pts[i + 1][1] - pts[i][1];
-          const segLen = Math.hypot(dx, dy);
-          segments.push(segLen);
-          length += segLen;
+  update(dt) {
+    const speed = this.params.speed;
+    const lifetime = this.params.lifetime;
+    for (let i = 0; i < this.particles.length; i++) {
+      const p = this.particles[i];
+      if (p.active) {
+        p.age += dt;
+        if (p.age > lifetime) {
+          p.active = false;
+          this.positions[i * 3 + 2] = 9999; // move offscreen
+          this.alphas[i] = 0;
+        } else {
+          // update position
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          this.positions[i * 3] = p.x;
+          this.positions[i * 3 + 1] = p.y;
+          this.positions[i * 3 + 2] = 0;
+          // fade out over lifetime
+          const alpha = 1.0 - p.age / lifetime;
+          this.alphas[i] = alpha;
         }
-        rings.push({ points: pts, segments, length });
+      }
+    }
+    this.geometry.attributes.position.needsUpdate = true;
+    this.geometry.attributes.alpha.needsUpdate = true;
+  }
+  spawn(x, y, count) {
+    for (let i = 0; i < this.particles.length && count > 0; i++) {
+      const p = this.particles[i];
+      if (!p.active) {
+        p.active = true;
+        p.x = x;
+        p.y = y;
+        p.z = 0;
+        // random velocity direction
+        const angle = Math.random() * Math.PI * 2;
+        const speed = this.params.speed * (0.5 + Math.random());
+        p.vx = Math.cos(angle) * speed;
+        p.vy = Math.sin(angle) * speed;
+        p.age = 0;
+        count--;
+        this.positions[i * 3] = p.x;
+        this.positions[i * 3 + 1] = p.y;
+        this.positions[i * 3 + 2] = 0;
+        this.alphas[i] = 1.0;
+      }
+    }
+  }
+  setActive(active) {
+    this.points.visible = active && !!this.params;
+  }
+}
+
+async function loadData() {
+  // Fetch the world TopoJSON at 110m resolution.  This strikes a
+  // balance between detail and payload.  We use JSDelivr for fast
+  // global delivery.  The file contains a GeometryCollection named
+  // 'countries'.
+  // Use unpkg.com for the TopoJSON instead of jsDelivr.  The jsDelivr
+  // endpoint started returning 403 errors when loaded from a file://
+  // origin, whereas unpkg.com serves the file with permissive CORS
+  // headers.  Pin to a specific version to avoid any breaking
+  // changes in the future.
+  const url = 'https://unpkg.com/world-atlas@2.0.2/countries-110m.json';
+  const response = await fetch(url);
+  const world = await response.json();
+  state.world = world;
+  const countries = topojson.feature(world, world.objects.countries).features;
+  state.features = countries;
+  // Build search index.  Use country name and id; fuse.js will
+  // handle fuzzy matching.  We exclude empty names just in case.
+  const index = [];
+  for (const f of countries) {
+    const name = f.properties.name || '';
+    if (name) {
+      index.push({ name, id: f.id });
+    }
+  }
+  state.index = index;
+  // Create Fuse.js instance for fuzzy searching names
+  state.fuse = new window.Fuse(index, {
+    keys: ['name'],
+    threshold: 0.3,
+    includeScore: false,
+  });
+  // Populate datalist with country names (in alphabetical order)
+  const list = index
+    .map((item) => item.name)
+    .sort((a, b) => a.localeCompare(b));
+  const datalist = document.getElementById('countriesList');
+  list.forEach((name) => {
+    const option = document.createElement('option');
+    option.value = name;
+    datalist.appendChild(option);
+  });
+}
+
+function setupRenderer() {
+  const container = document.getElementById('canvasContainer');
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  container.appendChild(renderer.domElement);
+  state.renderer = renderer;
+  // Orthographic camera for 2D view.  We'll update its frustum
+  // based on the bounds of the current country.
+  const aspect = container.clientWidth / container.clientHeight;
+  const camera = new THREE.OrthographicCamera(-aspect, aspect, 1, -1, -10, 10);
+  camera.position.set(0, 0, 5);
+  state.camera = camera;
+  const scene = new THREE.Scene();
+  state.scene = scene;
+  // Setup initial ambient light (not strictly necessary for MeshLine, but safe)
+  const light = new THREE.AmbientLight(0xffffff, 1.0);
+  scene.add(light);
+  // Resize handler
+  window.addEventListener('resize', () => {
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    renderer.setSize(w, h);
+    // update resolution uniform on line materials when available
+    if (state.lineGroup) {
+      state.lineGroup.children.forEach((mesh) => {
+        if (mesh.material && mesh.material.uniforms && mesh.material.uniforms.resolution) {
+          mesh.material.uniforms.resolution.value.set(w, h);
+        }
       });
     }
-    if (geo.type === 'Polygon') {
-      processPolygon(geo.coordinates);
-    } else if (geo.type === 'MultiPolygon') {
-      geo.coordinates.forEach(processPolygon);
-    }
-    return { rings, projection };
-  }
+    // update camera aspect
+    const aspect = w / h;
+    // We'll adjust camera bounds when drawing; here just update aspect
+    state.camera.updateProjectionMatrix();
+    render();
+  });
+}
 
-  // Draw the selected country
-  function drawCountry(name) {
-    // Cancel any existing animation
-    if (state.animationFrame) {
-      cancelAnimationFrame(state.animationFrame);
-      state.animationFrame = null;
-    }
-    state.startTime = null;
-    // Find feature by name
-    const feature = state.features.find(f => f.properties.name === name);
-    if (!feature) return;
-    state.currentFeature = feature;
-    // Compute rings and projection
-    const { rings, projection } = computeRings(feature);
-    state.currentRings = rings;
-    state.projection = projection;
-    // Clear previous drawings
-    state.strokeContainer.removeChildren();
-    state.fillContainer.removeChildren();
-    state.maskGraphics.clear();
-    // Create stroke graphics (full path drawn once)
-    const strokeG = new PIXI.Graphics();
-    strokeG.strokeGraphic = true; // marker to adjust later
-    const strokeWidth = state.perfMode ? 1.5 : 2.5;
-    strokeG.lineStyle(strokeWidth, PIXI.utils.string2hex(state.accentColor), 1);
-    rings.forEach(ring => {
-      const pts = ring.points;
-      if (pts.length > 0) {
-        strokeG.moveTo(pts[0][0], pts[0][1]);
-        for (let i = 1; i < pts.length; i++) {
-          strokeG.lineTo(pts[i][0], pts[i][1]);
-        }
+function setTheme(key) {
+  state.themeKey = key;
+  const theme = THEMES[key];
+  // Update background color
+  document.body.style.backgroundColor = theme.background;
+  // If a country is already displayed, rebuild the line group
+  if (state.currentCountry) {
+    drawCountry(state.currentCountry);
+  }
+}
+
+function createLineMeshes(rings, theme) {
+  // rings: array of Float32Array positions (flattened x,y,z) for each ring
+  const group = new THREE.Group();
+  const lineWidths = theme.lineWidths;
+  const opacities = theme.opacities;
+  const blendingModes = theme.blending;
+  const offsets = theme.offsets || null;
+  const colors = theme.colors;
+  // For each line layer, build meshes for all rings
+  for (let layer = 0; layer < lineWidths.length; layer++) {
+    const meshes = [];
+    const width = lineWidths[layer];
+    const opacity = opacities[layer] !== undefined ? opacities[layer] : 1.0;
+    const blending = blendingModes[layer] || THREE.NormalBlending;
+    const colorHex = colors[0];
+    const color = new THREE.Color(colorHex);
+    // For blueprint shadow effect, we apply a fixed offset on this layer
+    const layerOffset = offsets && offsets[layer] ? offsets[layer] : 0;
+    for (const ring of rings) {
+      const geometry = new MeshLine();
+      geometry.setPoints(ring);
+      const material = new MeshLineMaterial({
+        lineWidth: width,
+        color: color,
+        transparent: true,
+        opacity: opacity,
+        blending: blending,
+        depthWrite: false,
+        resolution: new THREE.Vector2(state.renderer.domElement.clientWidth, state.renderer.domElement.clientHeight),
+        // disable dashing for now; themes with dashed lines could set dashArray
+        // dashArray: 0,
+      });
+      // For blueprint layer offset: translate the mesh slightly down-right
+      const mesh = new THREE.Mesh(geometry, material);
+      if (layerOffset) {
+        mesh.position.set(layerOffset, -layerOffset, 0);
       }
-    });
-    state.strokeContainer.addChild(strokeG);
-    // Create fill graphics (for blueprint theme)
-    const fillG = new PIXI.Graphics();
-    rings.forEach(ring => {
-      const pts = ring.points;
-      if (pts.length > 0) {
-        fillG.moveTo(pts[0][0], pts[0][1]);
-        for (let i = 1; i < pts.length; i++) {
-          fillG.lineTo(pts[i][0], pts[i][1]);
-        }
-      }
-    });
-    state.fillContainer.addChild(fillG);
-    // Store references for theme
-    state.strokeGraphics = strokeG;
-    state.fillGraphics = fillG;
-    // Apply theme styling
-    applyCurrentTheme();
-    // Hide fill until completion
-    state.fillContainer.visible = false;
-    // Setup mask
-    state.maskGraphics.clear();
-    // Initially assign mask if animating
-    if (state.animate) {
-      strokeG.mask = state.maskGraphics;
-    } else {
-      strokeG.mask = null;
-    }
-    // Start animation or draw full
-    if (state.animate) {
-      state.startTime = performance.now();
-      animateFrame();
-    } else {
-      // No animation: reveal full stroke immediately and fill if blueprint
-      strokeG.mask = null;
-      if (state.theme.name === 'Blueprint') {
-        state.fillContainer.visible = true;
-        state.fillGraphics.clear();
-        // Fill with theme-specified fill color
-        rings.forEach(ring => {
-          const pts = ring.points;
-          if (pts.length > 0) {
-            state.fillGraphics.beginFill(PIXI.utils.string2hex(state.fillColor));
-            state.fillGraphics.moveTo(pts[0][0], pts[0][1]);
-            for (let i = 1; i < pts.length; i++) {
-              state.fillGraphics.lineTo(pts[i][0], pts[i][1]);
-            }
-            state.fillGraphics.endFill();
-          }
-        });
-      }
-      // Force theme complete stage
-      if (state.theme.complete) {
-        state.theme.complete(state);
-      }
+      // Initially hide geometry until animation reveals it
+      geometry.geometry.setDrawRange(0, 0);
+      meshes.push(mesh);
+      group.add(mesh);
     }
   }
+  return group;
+}
 
-  // Apply filters and styling for the current theme
-  function applyCurrentTheme() {
-    // Reset filters and blend modes
-    state.strokeContainer.filters = [];
-    state.strokeContainer.blendMode = PIXI.BLEND_MODES.NORMAL;
-    // Clear fill; will be filled on completion if theme needs
-    state.fillContainer.children.forEach(child => {
-      child.clear?.();
-    });
-    // Set accent and fill color on container context
-    const context = {
-      strokeContainer: state.strokeContainer,
-      fillContainer: state.fillContainer,
-      accentColor: state.accentColor,
-      perfMode: state.perfMode,
-      animate: state.animate,
-      fillColor: null
-    };
-    // Apply theme
-    if (state.theme && state.theme.apply) {
-      state.theme.apply(context);
-    }
-    // Save any fillColor back
-    if (context.fillColor) {
-      state.fillColor = context.fillColor;
-    } else {
-      state.fillColor = state.accentColor + '33';
-    }
+// Compute maximum vertex count across all rings for uniform animation
+function computeMaxVertices(rings) {
+  let maxVertices = 0;
+  for (const ring of rings) {
+    // ring is Float32Array [x,y,z, x,y,z,...]
+    maxVertices = Math.max(maxVertices, ring.length / 3);
   }
+  return maxVertices;
+}
 
-  // Animation loop
-  function animateFrame(now) {
-    state.animationFrame = requestAnimationFrame(animateFrame);
-    if (!state.startTime) state.startTime = now;
-    const elapsed = now - state.startTime;
-    let progress = Math.min(elapsed / state.duration, 1);
-    // Clear mask
-    const mg = state.maskGraphics;
-    mg.clear();
-    // Draw partial mask for each ring
-    const strokeWidth = state.perfMode ? 1.5 : 2.5;
-    mg.lineStyle(strokeWidth + 2, 0xffffff, 1);
-    state.currentRings.forEach(ring => {
-      const drawLen = progress * ring.length;
-      let remaining = drawLen;
-      const pts = ring.points;
-      const segs = ring.segments;
-      if (pts.length === 0) return;
-      mg.moveTo(pts[0][0], pts[0][1]);
-      let drawnFirst = false;
-      for (let i = 0; i < segs.length; i++) {
-        const segLen = segs[i];
-        if (remaining >= segLen) {
-          // draw full segment
-          mg.lineTo(pts[i + 1][0], pts[i + 1][1]);
-          remaining -= segLen;
-        } else {
-          // draw partial segment
-          const ratio = segLen === 0 ? 0 : (remaining / segLen);
-          const dx = pts[i + 1][0] - pts[i][0];
-          const dy = pts[i + 1][1] - pts[i][1];
-          const x = pts[i][0] + dx * ratio;
-          const y = pts[i][1] + dy * ratio;
-          mg.lineTo(x, y);
-          break;
-        }
-      }
-    });
-    // Per-theme tick
-    if (state.theme && state.theme.tick) {
-      state.theme.tick(state, progress);
-    }
-    // Completion
-    if (progress >= 1) {
-      // Remove mask so full stroke shows
-      state.strokeGraphics.mask = null;
-      state.maskGraphics.clear();
-      // Draw fill if blueprint theme
-      if (state.theme.name === 'Blueprint') {
-        // Fill geometry
-        state.fillGraphics.clear();
-        state.currentRings.forEach(ring => {
-          const pts = ring.points;
-          if (pts.length > 0) {
-            state.fillGraphics.beginFill(PIXI.utils.string2hex(state.fillColor));
-            state.fillGraphics.moveTo(pts[0][0], pts[0][1]);
-            for (let i = 1; i < pts.length; i++) {
-              state.fillGraphics.lineTo(pts[i][0], pts[i][1]);
-            }
-            state.fillGraphics.endFill();
-          }
-        });
-        state.fillContainer.visible = true;
-      }
-      // Call theme complete
-      if (state.theme && state.theme.complete) {
-        state.theme.complete(state);
-      }
-      cancelAnimationFrame(state.animationFrame);
-      state.animationFrame = null;
-    }
+function drawCountry(feature) {
+  // Remove existing group and particles
+  if (state.lineGroup) {
+    state.scene.remove(state.lineGroup);
+    state.lineGroup = null;
   }
-
-  // Kick off initialization after all dependencies are loaded
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+  if (state.particleSystem) {
+    state.scene.remove(state.particleSystem.points);
+    state.particleSystem = null;
+  }
+  state.currentCountry = feature;
+  const theme = THEMES[state.themeKey];
+  // Determine projection based on country.  Use Albers USA for
+  // United States, rotated equal‑earth for Russia, otherwise equal‑earth.
+  const iso3 = feature.id;
+  let projection;
+  if (iso3 === '840') {
+    // USA composite projection; approximated by d3.geoAlbersUsa
+    projection = d3Geo.geoAlbersUsa();
+  } else if (iso3 === '643') {
+    // Russia: rotate so Far East wraps around
+    projection = d3Geo.geoEqualEarth().rotate([100, 0]);
   } else {
-    init();
+    projection = d3Geo.geoEqualEarth();
   }
+  state.projection = projection;
+  // Project geometry coordinates into 2D and build rings array
+  // Each ring becomes a Float32Array of [x,y,0,...]
+  const rings = [];
+  // A feature may be MultiPolygon or Polygon
+  const coords = feature.geometry.coordinates;
+  const type = feature.geometry.type;
+  if (type === 'Polygon') {
+    // coords is array of rings
+    coords.forEach((ring) => {
+      const flat = [];
+      ring.forEach(([lon, lat]) => {
+        const [x, y] = projection([lon, lat]);
+        flat.push(x, y, 0);
+      });
+      rings.push(new Float32Array(flat));
+    });
+  } else if (type === 'MultiPolygon') {
+    coords.forEach((poly) => {
+      poly.forEach((ring) => {
+        const flat = [];
+        ring.forEach(([lon, lat]) => {
+          const [x, y] = projection([lon, lat]);
+          flat.push(x, y, 0);
+        });
+        rings.push(new Float32Array(flat));
+      });
+    });
+  }
+  // Compute bounding box
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity;
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length; i += 3) {
+      const x = ring[i];
+      const y = ring[i + 1];
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  // Compute scale and offset to fit within view
+  const container = document.getElementById('canvasContainer');
+  const margin = 20; // pixels
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  // Determine scaling factor based on bounding box extents vs. container size
+  const dataWidth = maxX - minX;
+  const dataHeight = maxY - minY;
+  const scaleX = (width - margin * 2) / dataWidth;
+  const scaleY = (height - margin * 2) / dataHeight;
+  const scale = Math.min(scaleX, scaleY);
+  // Offset to centre geometry
+  const offsetX = -((minX + maxX) / 2);
+  const offsetY = -((minY + maxY) / 2);
+  // Apply transformation to rings (copy to new arrays to avoid reusing original)
+  const transformedRings = [];
+  for (const ring of rings) {
+    const coords = new Float32Array(ring.length);
+    for (let i = 0; i < ring.length; i += 3) {
+      const x = (ring[i] + offsetX) * scale;
+      const y = (ring[i + 1] + offsetY) * scale;
+      coords[i] = x;
+      coords[i + 1] = y;
+      coords[i + 2] = 0;
+    }
+    transformedRings.push(coords);
+  }
+  // Adjust camera frustum to match container dims.  We set the
+  // orthographic bounds equal to half of container size in world units
+  // (scale implicitly maps world coords into pixel space).  We choose
+  // symmetrical bounds around zero.  Because we scaled the data to
+  // fill [-(width/2-margin), (width/2-margin)] etc, we can simply
+  // set camera left/right to ± width/2 and top/bottom to ± height/2.
+  const left = -width / 2;
+  const right = width / 2;
+  const topVal = height / 2;
+  const bottomVal = -height / 2;
+  state.camera.left = left;
+  state.camera.right = right;
+  state.camera.top = topVal;
+  state.camera.bottom = bottomVal;
+  state.camera.updateProjectionMatrix();
+  // Build line meshes according to theme
+  const group = createLineMeshes(transformedRings, theme);
+  state.lineGroup = group;
+  state.scene.add(group);
+  // Build particle system if theme defines one
+  if (theme.particle) {
+    state.particleSystem = new ParticleSystem(state.scene, theme.particle);
+  }
+  // Compute maximum vertices across rings
+  const maxVertices = computeMaxVertices(transformedRings);
+  // Cancel existing animation tween
+  if (state.animationTween) {
+    state.animationTween.stop();
+  }
+  // Duration in ms
+  const duration = state.animationDuration;
+  // Prepare tween value
+  const params = { progress: 0 };
+  const tween = new Tween.Tween(params)
+    .to({ progress: 1 }, duration)
+    .easing(Tween.Easing.Linear.None)
+    .onUpdate(() => {
+      // Update draw range for each ring in each mesh layer
+      const drawCount = Math.floor(params.progress * maxVertices);
+      group.children.forEach((mesh) => {
+        const geom = mesh.geometry;
+        geom.geometry.setDrawRange(0, drawCount);
+      });
+      // Spawn particles at current head position (approximate using last drawn vertices)
+      if (state.particleSystem && state.animating) {
+        // Determine head position from the first ring (largest) if exists
+        if (transformedRings.length > 0) {
+          const ring = transformedRings[0];
+          const idx = Math.min(drawCount - 1, ring.length / 3 - 1);
+          if (idx >= 0) {
+            const x = ring[idx * 3];
+            const y = ring[idx * 3 + 1];
+            state.particleSystem.spawn(x, y, 4);
+          }
+        }
+      }
+    })
+    .onComplete(() => {
+      // After the outline is fully drawn, ensure draw ranges are full
+      group.children.forEach((mesh) => {
+        const geom = mesh.geometry;
+        geom.geometry.setDrawRange(0, maxVertices);
+      });
+    });
+  state.animationTween = tween;
+  // Start animation only if animating flag is true
+  if (state.animating) {
+    tween.start();
+  } else {
+    // Immediately render full
+    params.progress = 1;
+    tween.onUpdateCallback(params);
+    tween.onCompleteCallback();
+  }
+  render();
+}
 
-})();
+function render() {
+  if (!state.renderer) return;
+  state.renderer.render(state.scene, state.camera);
+}
+
+function animate(time) {
+  requestAnimationFrame(animate);
+  // update tween engine
+  Tween.update();
+  // update particles
+  if (state.particleSystem) {
+    state.particleSystem.update(0.016); // approximate dt for 60fps
+  }
+  render();
+}
+
+function setupUI() {
+  state.countryInput = document.getElementById('countryInput');
+  state.themeSelect = document.getElementById('themeSelect');
+  state.animateToggle = document.getElementById('animateToggle');
+  state.durationSlider = document.getElementById('durationSlider');
+  state.durationValue = document.getElementById('durationValue');
+  state.menuToggle = document.getElementById('menuToggle');
+  state.primaryControls = document.getElementById('primaryControls');
+  state.secondaryControls = document.getElementById('secondaryControls');
+  // Update duration display
+  state.durationValue.textContent = state.durationSlider.value + 's';
+  // Listen for country input events
+  state.countryInput.addEventListener('change', (e) => {
+    const query = e.target.value.trim();
+    if (!query) return;
+    // Use Fuse.js to find best matching country
+    const results = state.fuse.search(query);
+    let selected = null;
+    // If the typed value matches exactly, pick that; otherwise use top match
+    for (const item of state.index) {
+      if (item.name.toLowerCase() === query.toLowerCase()) {
+        selected = item;
+        break;
+      }
+    }
+    if (!selected && results.length > 0) {
+      selected = results[0].item;
+    }
+    if (selected) {
+      // Find feature by id
+      const feature = state.features.find((f) => f.id === selected.id);
+      if (feature) {
+        drawCountry(feature);
+      }
+    }
+  });
+  // Theme selection
+  state.themeSelect.addEventListener('change', (e) => {
+    const key = e.target.value;
+    setTheme(key);
+  });
+  // Animate toggle
+  state.animateToggle.addEventListener('change', (e) => {
+    const checked = e.target.checked;
+    state.animating = checked;
+    // Restart animation on toggle change
+    if (state.currentCountry) {
+      drawCountry(state.currentCountry);
+    }
+    if (state.particleSystem) {
+      state.particleSystem.setActive(checked);
+    }
+  });
+  // Duration slider
+  state.durationSlider.addEventListener('input', (e) => {
+    const value = parseInt(e.target.value, 10);
+    state.animationDuration = value * 1000;
+    state.durationValue.textContent = value + 's';
+    // Restart animation with new duration
+    if (state.currentCountry) {
+      drawCountry(state.currentCountry);
+    }
+  });
+  // Menu toggle for small screens
+  state.menuToggle.addEventListener('click', () => {
+    const panel = document.getElementById('controlPanel');
+    if (panel.classList.contains('open')) {
+      panel.classList.remove('open');
+    } else {
+      panel.classList.add('open');
+    }
+  });
+}
+
+async function init() {
+  await loadData();
+  setupRenderer();
+  setupUI();
+  // Set default theme
+  setTheme(state.themeKey);
+  // Kick off animation loop
+  requestAnimationFrame(animate);
+}
+
+init().catch((err) => console.error(err));
