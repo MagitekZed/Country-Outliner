@@ -1,290 +1,209 @@
 /*
- * Global styles for the Country Outline Viewer.
- *
- * This stylesheet introduces a modern, cohesive aesthetic with a dark
- * theme, custom form controls and responsive layout rules.  A top
- * navigation bar contains the search input and a menu toggle for
- * smaller screens.  Additional controls live in a separate panel
- * that collapses behind the menu on narrow viewports.
+ * Global styling and modern dark theme.  
+ * The layout is responsive: the control panel collapses under the top bar on small screens, with a
+ * hamburger menu to reveal or hide advanced controls. Sliders, selects and buttons are custom
+ * styled to feel cohesive and polished.  
  */
-
-/* Colour palette variables for easy customisation */
-:root {
-  --background-colour: #0a0a0a;
-  --surface-colour: #111;
-  --control-bg: #1a1a1a;
-  --primary-colour: #00bfa5; /* teal accent */
-  --secondary-colour: #292929;
-  --text-colour: #ffffff;
-  --text-muted: #cccccc;
-  --border-radius: 6px;
-  --transition-speed: 0.3s;
-}
-
-html,
-body {
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  background-color: var(--background-colour);
-  color: var(--text-colour);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
-    Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-  font-size: 16px;
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: "Segoe UI", Roboto, sans-serif;
+    color: #ececec;
+    background-color: #111114;
+    overflow: hidden;
 }
 
 #app {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-}
-
-/* Top bar layout */
-#top-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background-color: var(--surface-colour);
-  padding: 0.5rem 0.75rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-  z-index: 10;
-}
-
-.search-container {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  margin-right: 0.5rem;
-}
-
-.search-container label {
-  font-size: 0.8rem;
-  margin-bottom: 0.25rem;
-  color: var(--text-muted);
-}
-
-.input-wrapper {
-  position: relative;
-}
-
-/* Search input */
-input#country-input {
-  width: 100%;
-  padding: 0.5rem;
-  border-radius: var(--border-radius);
-  border: none;
-  font-size: 1rem;
-  color: var(--background-colour);
-  background-color: var(--text-colour);
-  outline: none;
-}
-
-/* Suggestion dropdown */
-.suggestions {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  width: 100%;
-  background-color: var(--control-bg);
-  border: 1px solid var(--secondary-colour);
-  border-radius: var(--border-radius);
-  max-height: 200px;
-  overflow-y: auto;
-  display: none;
-  z-index: 20;
-  margin-top: 0.25rem;
-}
-.suggestions.visible {
-  display: block;
-}
-.suggestions div {
-  padding: 0.5rem;
-  cursor: pointer;
-  transition: background-color var(--transition-speed) ease;
-}
-.suggestions div:hover {
-  background-color: #333;
-}
-
-/* Menu toggle button */
-#menu-toggle {
-  background: none;
-  border: none;
-  color: var(--text-colour);
-  font-size: 1.5rem;
-  cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  border-radius: var(--border-radius);
-  transition: background-color var(--transition-speed) ease;
-}
-#menu-toggle:hover {
-  background-color: var(--secondary-colour);
-}
-/* Hidden by default on larger screens */
-#menu-toggle {
-  display: none;
-}
-
-/* Controls panel */
-#controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
-  background-color: var(--surface-colour);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.control-item {
-  display: flex;
-  flex-direction: column;
-  min-width: 160px;
-  flex: 1 1 160px;
-}
-
-.control-item label {
-  font-size: 0.75rem;
-  margin-bottom: 0.25rem;
-  color: var(--text-muted);
-}
-
-/* Inputs styling */
-.control-item select,
-.control-item input[type='color'],
-.control-item input[type='text'] {
-  padding: 0.4rem;
-  font-size: 1rem;
-  background-color: var(--control-bg);
-  color: var(--text-colour);
-  border: 1px solid var(--secondary-colour);
-  border-radius: var(--border-radius);
-  outline: none;
-}
-
-/* Range slider */
-.range-item input[type='range'] {
-  -webkit-appearance: none;
-  width: 100%;
-  height: 6px;
-  background: var(--secondary-colour);
-  border-radius: var(--border-radius);
-  outline: none;
-  margin: 0.5rem 0;
-}
-.range-item input[type='range']::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--primary-colour);
-  cursor: pointer;
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.4);
-  transition: background-color var(--transition-speed) ease;
-}
-.range-item input[type='range']::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--primary-colour);
-  cursor: pointer;
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.4);
-}
-.range-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-#duration-display {
-  font-size: 0.85rem;
-  min-width: 32px;
-  text-align: right;
-  color: var(--text-colour);
-}
-
-/* Switch style for checkboxes (Animate and Fill) */
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 22px;
-}
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.switch .slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--secondary-colour);
-  transition: var(--transition-speed);
-  border-radius: var(--border-radius);
-}
-.switch .slider::before {
-  position: absolute;
-  content: '';
-  height: 16px;
-  width: 16px;
-  left: 3px;
-  bottom: 3px;
-  background-color: var(--text-colour);
-  transition: var(--transition-speed);
-  border-radius: 50%;
-}
-.switch input:checked + .slider {
-  background-color: var(--primary-colour);
-}
-.switch input:checked + .slider::before {
-  transform: translateX(18px);
-}
-
-/* Responsive behaviour */
-@media (max-width: 600px) {
-  #menu-toggle {
-    display: block;
-  }
-  #controls {
-    display: none;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  #controls.open {
     display: flex;
-  }
-  .control-item {
-    flex: 1 1 100%;
-    min-width: auto;
-  }
+    flex-direction: column;
+    height: 100%;
 }
 
-/* Drawing container holds the SVG */
-.drawing-container {
-  flex: 1;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
+/* Top bar */
+#top-bar {
+    display: flex;
+    align-items: center;
+    padding: 0.6rem 1rem;
+    background-color: #1a1c20;
+    border-bottom: 1px solid #2c2f36;
+}
+#search-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    position: relative;
+    gap: 0.5rem;
+}
+#search-container label {
+    font-size: 0.9rem;
+    opacity: 0.8;
+}
+#country-search {
+    flex: 1;
+    padding: 0.4rem 0.6rem;
+    background-color: #23262c;
+    border: 1px solid #3a3f48;
+    color: #eee;
+    border-radius: 4px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+#country-search:focus {
+    border-color: #6e46ae;
+}
+#autocomplete {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background-color: #1f2126;
+    border: 1px solid #3a3f48;
+    border-top: none;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 10;
+    display: none;
+}
+#autocomplete .item {
+    padding: 0.4rem 0.6rem;
+    cursor: pointer;
+    border-bottom: 1px solid #2c2f36;
+}
+#autocomplete .item:last-child {
+    border-bottom: none;
+}
+#autocomplete .item:hover {
+    background-color: #2c2f36;
 }
 
-.drawing-container svg {
-  width: 100%;
-  height: 100%;
-  display: block;
+/* Menu toggle button for small screens */
+#menu-toggle {
+    background: none;
+    border: none;
+    padding: 0.4rem;
+    cursor: pointer;
+    display: none; /* Hidden on wide screens */
+}
+#menu-toggle svg rect {
+    fill: #bbb;
 }
 
-/* Loading indicator */
-.loading {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  color: #888;
-  font-size: 1.2rem;
+/* Control panel styling */
+#control-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0.6rem 1rem;
+    background-color: #17191e;
+    border-bottom: 1px solid #2c2f36;
+}
+.control-group {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+.control-group label {
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
+/* Select fields */
+select {
+    background-color: #23262c;
+    color: #eee;
+    border: 1px solid #3a3f48;
+    border-radius: 4px;
+    padding: 0.35rem 0.6rem;
+    appearance: none;
+    font-size: 0.85rem;
+    outline: none;
+    min-width: 120px;
+    transition: border-color 0.2s;
+}
+select:focus {
+    border-color: #6e46ae;
+}
+
+/* Custom slider */
+#duration-slider {
+    -webkit-appearance: none;
+    width: 200px;
+    height: 6px;
+    background: #3a3f48;
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+}
+#duration-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #6e46ae;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 2px rgba(0,0,0,0.4);
+}
+#duration-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #6e46ae;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 2px rgba(0,0,0,0.4);
+}
+
+/* Checkbox styling (uses default styling but with spacing) */
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: pointer;
+}
+
+/* Map container fills the remaining vertical space */
+#map-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background-color: #08090c;
+}
+
+/* Compatibility message styling */
+#compat-message {
+    background-color: #b00020;
+    color: #fff;
+    padding: 1rem;
+    text-align: center;
+}
+.hidden {
+    display: none;
+}
+
+/* Responsive: collapse controls under the top bar on narrow viewports */
+@media (max-width: 700px) {
+    #menu-toggle {
+        display: block;
+    }
+    #control-panel {
+        display: none;
+        flex-direction: column;
+        gap: 1rem;
+        padding-top: 0.5rem;
+        padding-bottom: 1rem;
+    }
+    #control-panel.open {
+        display: flex;
+    }
+    .control-group {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    select, #duration-slider {
+        width: 100%;
+    }
 }
