@@ -22,10 +22,10 @@
          PIXI.Application creates a renderer and exposes a valid view.  See main.js for
          additional runtime checks. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.2.4/pixi.min.js"></script>
-    <!-- Optional: Particle emitter for future effects (not yet used extensively).  This
-         library should match the major version of PixiJS; the v4 emitter is
-         compatible with Pixi v7. -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi-particle-emitter/4.3.0/particle-emitter.min.js"></script>
+    <!-- Note: The particle emitter library has been removed from this release to
+         reduce network dependencies and avoid 404/ORB errors.  If you wish to add
+         particle effects in the future, include a compatible version of
+         pixi-particle-emitter locally in the repository or via a reliable CDN. -->
     <script src="main.js"></script>
   </head>
   <body>

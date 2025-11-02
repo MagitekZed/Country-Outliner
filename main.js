@@ -116,20 +116,30 @@ window.addEventListener('DOMContentLoaded', () => {
   // explicitly verify that both the renderer and view exist.
   try {
     if (typeof PIXI !== 'undefined' && PIXI.Application) {
+      // Manually set the width and height to avoid issues with the resizeTo
+      // option in certain PixiJS versions.  We'll listen for window
+      // resize events and update the renderer size accordingly.
+      const initialWidth = drawingContainer.clientWidth || 800;
+      const initialHeight = drawingContainer.clientHeight || 600;
       const app = new PIXI.Application({
-        resizeTo: drawingContainer,
+        width: initialWidth,
+        height: initialHeight,
         antialias: true,
         autoDensity: true,
         backgroundAlpha: 0,
       });
-      // PixiJS may fail to create a renderer if WebGL or Canvas are not
-      // available.  In such cases app.renderer will be undefined and
-      // attempting to access app.view will throw.  Check explicitly
-      // before using the application.
+      // Verify the renderer and view exist before using them.
       if (app.renderer && app.renderer.view) {
         pixiApp = app;
         drawingContainer.appendChild(pixiApp.view);
         usePixi = true;
+        // Handle resizing: adjust the Pixi renderer to match the container
+        const resizeObserver = new ResizeObserver(() => {
+          const w = drawingContainer.clientWidth;
+          const h = drawingContainer.clientHeight;
+          pixiApp.renderer.resize(w, h);
+        });
+        resizeObserver.observe(drawingContainer);
       } else {
         console.error('PixiJS initialisation failed: renderer or view is undefined');
         pixiApp = null;
