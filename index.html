@@ -13,10 +13,13 @@
     <script src="https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pixi.js@7.3.0/dist/pixi.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-glow@4.2.2/dist/pixi-filters-glow.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-bloom@4.2.2/dist/pixi-filters-bloom.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-drop-shadow@4.2.2/dist/pixi-filters-drop-shadow.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-color-matrix@4.2.2/dist/pixi-filters-color-matrix.min.js"></script>
+    <!-- Load individual Pixi filter bundles.  The compiled files expose filter
+         constructors on PIXI.filters.  Using the base file names (filter‑*.min.js)
+         rather than pixi‑filters‑*.min.js avoids a constructor undefined error. -->
+    <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-glow@4.2.2/dist/filter-glow.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-bloom@4.2.2/dist/filter-bloom.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-drop-shadow@4.2.2/dist/filter-drop-shadow.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-color-matrix@4.2.2/dist/filter-color-matrix.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
 </head>
 <body>
