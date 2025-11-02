@@ -28,13 +28,62 @@ let precomputedDisputed = []; // array of {feature, bbox}
 let nameToFeature = new Map(); // maps normalized name to feature
 
 // Remember the currently selected country feature so that style changes
-// (stroke weight, colors, animation) can trigger a redraw without retyping.
+// (theme, animation, duration) can trigger a redraw without retyping.
 let currentFeature = null;
 
 // DOM references (initialised in init once the document is ready)
 let inputEl;
 let suggestionsEl;
 let drawingContainer;
+let themeSelectEl;
+let perfModeEl;
+let animateToggleEl;
+let animDurationEl;
+let durationDisplayEl;
+
+// Pixi application and container for the current drawing.  These
+// variables are initialised in the DOMContentLoaded handler.  The
+// application’s view will be appended to the drawing container and
+// automatically sized to fill it.
+let pixiApp = null;
+let currentDrawContainer = null;
+
+// Themes definition.  Each theme specifies stroke colour, glow
+// settings, optional shadow and fill.  Colours are provided as hex
+// integers for Pixi.  The glow and shadow sizes are specified in
+// pixels.  Fill alpha controls the opacity of the fill (0 = none).
+const THEMES = {
+  wireframe: {
+    stroke: 0xffffff,
+    glow: 0x00bfa5,
+    glowSize: 4,
+    glowAlpha: 0.4,
+    fill: null,
+    fillAlpha: 0,
+    shadow: null,
+    bg: 0x0a0a0a,
+  },
+  neon: {
+    stroke: 0x00e5ff,
+    glow: 0x00e5ff,
+    glowSize: 6,
+    glowAlpha: 0.6,
+    fill: null,
+    fillAlpha: 0,
+    shadow: null,
+    bg: 0x000010,
+  },
+  blueprint: {
+    stroke: 0xffffff,
+    glow: 0x004080,
+    glowSize: 3,
+    glowAlpha: 0.3,
+    fill: 0x0a2535,
+    fillAlpha: 0.15,
+    shadow: { color: 0x000000, alpha: 0.5, offsetX: 2, offsetY: 2 },
+    bg: 0x0a2535,
+  },
+};
 
 // Initialise after the DOM has loaded.  Without waiting for
 // DOMContentLoaded the script would try to access elements that do
@@ -43,6 +92,24 @@ window.addEventListener('DOMContentLoaded', () => {
   inputEl = document.getElementById('country-input');
   suggestionsEl = document.getElementById('suggestions');
   drawingContainer = document.getElementById('drawing-container');
+  themeSelectEl = document.getElementById('theme-select');
+  perfModeEl = document.getElementById('perf-mode');
+  animateToggleEl = document.getElementById('animate-outline');
+  animDurationEl = document.getElementById('animation-duration');
+  durationDisplayEl = document.getElementById('duration-display');
+
+  // Initialise PixiJS application and append it to the drawing container.
+  try {
+    pixiApp = new PIXI.Application({
+      resizeTo: drawingContainer,
+      antialias: true,
+      autoDensity: true,
+      backgroundAlpha: 0,
+    });
+    drawingContainer.appendChild(pixiApp.view);
+  } catch (e) {
+    console.error('Failed to initialise PixiJS', e);
+  }
 
   // Set up the responsive menu toggle for narrow screens.  On
   // small viewports the controls panel is hidden by default and
@@ -56,6 +123,7 @@ window.addEventListener('DOMContentLoaded', () => {
       controlsPanel.classList.toggle('open');
     });
   }
+
   loadData().catch((err) => {
     console.error('Error loading data:', err);
     showMessage('Failed to load map data. Check your connection.');
@@ -115,27 +183,16 @@ function setupInput() {
     }
   });
 
-  // Grab references to the style controls and set initial values
-  const strokeWeightEl = document.getElementById('stroke-weight');
-  const strokeColorEl = document.getElementById('stroke-color');
-  const backgroundColorEl = document.getElementById('background-color');
-  const animateEl = document.getElementById('animate-outline');
+  // Display the initial value of the animation duration
+  if (durationDisplayEl) {
+    durationDisplayEl.textContent = animDurationEl.value + 's';
+  }
 
-  // Additional controls for fill, line style and animation duration
-  const fillEnabledEl = document.getElementById('fill-enabled');
-  const fillColorEl = document.getElementById('fill-color');
-  const lineStyleEl = document.getElementById('line-style');
-  const animDurationEl = document.getElementById('animation-duration');
-  const durationDisplayEl = document.getElementById('duration-display');
-
-  // Apply initial background colour
-  drawingContainer.style.backgroundColor = backgroundColorEl.value;
-
-  // Whenever any of the style controls change, redraw the current feature (if any)
-  function handleStyleChange() {
-    // Update the container background immediately for background colour changes
-    drawingContainer.style.backgroundColor = backgroundColorEl.value;
-    // Update the animation duration display
+  // When any control changes, redraw the current feature (if any).  We update
+  // the duration display and call drawCountry() to apply the new theme,
+  // animation toggle, performance mode or duration.  Background colours are
+  // applied inside drawCountry based on the selected theme.
+  function handleControlsChange() {
     if (durationDisplayEl) {
       durationDisplayEl.textContent = animDurationEl.value + 's';
     }
@@ -143,16 +200,10 @@ function setupInput() {
       drawCountry(currentFeature);
     }
   }
-  strokeWeightEl.addEventListener('change', handleStyleChange);
-  strokeColorEl.addEventListener('input', handleStyleChange);
-  backgroundColorEl.addEventListener('input', handleStyleChange);
-  animateEl.addEventListener('change', handleStyleChange);
-
-  // Wire up new style controls
-  if (fillEnabledEl) fillEnabledEl.addEventListener('change', handleStyleChange);
-  if (fillColorEl) fillColorEl.addEventListener('input', handleStyleChange);
-  if (lineStyleEl) lineStyleEl.addEventListener('change', handleStyleChange);
-  if (animDurationEl) animDurationEl.addEventListener('input', handleStyleChange);
+  themeSelectEl.addEventListener('change', handleControlsChange);
+  perfModeEl.addEventListener('change', handleControlsChange);
+  animateToggleEl.addEventListener('change', handleControlsChange);
+  animDurationEl.addEventListener('input', handleControlsChange);
 }
 
 /**
@@ -217,58 +268,69 @@ function selectCountry(feature) {
  * @param {object} feature GeoJSON feature representing the selected country
  */
 function drawCountry(feature) {
-  // Clear any existing SVG
-  drawingContainer.innerHTML = '';
+  // Guard against missing Pixi application
+  if (!pixiApp) {
+    console.error('PixiJS application not initialised');
+    return;
+  }
+  // Clear any previous drawing by removing children from the stage.  We do
+  // not remove the Pixi view from the DOM because it is reused across
+  // draws.  This ensures old graphics are cleared before new ones are
+  // added.
+  pixiApp.stage.removeChildren();
 
+  // Determine selected theme and other UI settings.  Fall back to
+  // sensible defaults if controls are missing.
+  const themeName = themeSelectEl ? themeSelectEl.value : 'wireframe';
+  const theme = THEMES[themeName] || THEMES.wireframe;
+  const perfMode = perfModeEl && perfModeEl.checked;
+  const animate = animateToggleEl && animateToggleEl.checked;
+  let durationMs = 20000;
+  if (animDurationEl) {
+    const val = parseFloat(animDurationEl.value);
+    if (!isNaN(val)) {
+      durationMs = val * 1000;
+    }
+  }
+  // Apply the background colour based on the current theme.  Convert
+  // numeric hex values to six‑character hex strings with a leading '#'.
+  const bgHex = theme.bg != null ? theme.bg.toString(16).padStart(6, '0') : '000000';
+  drawingContainer.style.backgroundColor = `#${bgHex}`;
+
+  // Compute projection for the selected country.  Use Equal Earth by
+  // default; switch to Albers USA for the United States and rotate
+  // Equal Earth for Russia to centre its longitude.  Compute width and
+  // height of the drawing area each time in case the container has
+  // resized (responsive design).  Fit the projection to the container
+  // with 20 px padding on each side.
   const { width, height } = drawingContainer.getBoundingClientRect();
-  const svg = d3
-    .select(drawingContainer)
-    .append('svg')
-    .attr('width', width)
-    .attr('height', height);
-
-  // Determine which projection to use based on the selected country.  Most
-  // countries are rendered with the Equal Earth projection (a pseudocylindrical,
-  // equal‑area projection) because it preserves north‑up orientation and
-  // produces recognizable shapes【159340284396829†L36-L48】.  However, some
-  // countries have parts far from the mainland—most notably the United
-  // States (Alaska and Hawaii) and Russia (the far east)—which makes the
-  // default projection overly wide.  For the United States we use the
-  // built‑in Albers USA composite projection, which repositions and scales
-  // Alaska and Hawaii so they fit neatly below the contiguous states.  For
-  // Russia we rotate the Equal Earth projection to center the country’s
-  // longitudinal midpoint, which tucks the far eastern territories closer
-  // to the rest of the nation.  All other countries use the unrotated
-  // Equal Earth projection.
   let projection;
   try {
     const props = feature.properties || {};
-    // Normalized country name for matching presets
-    const normName = normalize(props.name || props.NAME || props.name_long || props.NAME_LONG || '');
-    const isoA3 = (props.iso_a3 || props.adm0_a3 || props.ADM0_A3 || '').toString().toUpperCase();
-    if (isoA3 === 'USA' || normName === 'united states' || normName === 'united states of america') {
-      // Use the Albers USA composite projection.  This projection relocates Alaska
-      // and Hawaii and scales them appropriately relative to the contiguous
-      // states.  It is part of the core d3-geo library.
+    const normName = normalize(
+      props.name || props.NAME || props.name_long || props.NAME_LONG || ''
+    );
+    const isoA3 = (
+      props.iso_a3 || props.adm0_a3 || props.ADM0_A3 || ''
+    )
+      .toString()
+      .toUpperCase();
+    if (
+      isoA3 === 'USA' ||
+      normName === 'united states' ||
+      normName === 'united states of america'
+    ) {
       projection = d3.geoAlbersUsa();
-    } else if (isoA3 === 'RUS' || normName === 'russia' || normName === 'russian federation') {
-      // For Russia, rotate the Equal Earth projection so that the country’s
-      // longitude midpoint sits at the prime meridian.  This reduces the
-      // apparent width by keeping the far eastern territories close to the
-      // mainland.  Compute the geographic bounds and average longitude to
-      // determine the centre.
+    } else if (
+      isoA3 === 'RUS' ||
+      normName === 'russia' ||
+      normName === 'russian federation'
+    ) {
       const bounds = d3.geoBounds(feature);
       const minLon = bounds[0][0];
       const maxLon = bounds[1][0];
-      // If the geometry crosses the antimeridian, adjust the longitudes to
-      // produce a meaningful midpoint.  When maxLon < minLon (e.g. 170°E to
-      // -170°W), wrap the values into a 360° range by adding 360° to the
-      // negative longitude.
       let midpoint;
       if (maxLon < minLon) {
-        // Example: minLon = 170, maxLon = -170.  Convert maxLon to 190 to
-        // compute midpoint correctly ((170 + 190)/2 = 180).  After
-        // computing the midpoint, bring it back to the -180–180 range.
         midpoint = (minLon + (maxLon + 360)) / 2;
         if (midpoint > 180) midpoint -= 360;
       } else {
@@ -276,26 +338,11 @@ function drawCountry(feature) {
       }
       projection = d3.geoEqualEarth().rotate([-midpoint, 0]);
     } else {
-      // Default projection for most countries
       projection = d3.geoEqualEarth();
     }
   } catch (e) {
-    // Fallback to equal earth if anything goes wrong
     projection = d3.geoEqualEarth();
   }
-
-  // Fit the projection to the available drawing area with padding on all
-  // sides.  The fitExtent method sets the projection’s scale and
-  // translation so that the feature occupies the rectangle defined by
-  // [[padding, padding], [width − padding, height − padding]].  This keeps
-  // the outline centered both horizontally and vertically with a margin
-  // of space around it.
-  // Always fit the projection to the drawing area.  The fitExtent method
-  // adjusts the scale and translation so the geometry fills the available
-  // space with a 20 px margin on each side.  Even composite projections
-  // such as geoAlbersUsa can be fit using this method.  If the selected
-  // projection does not implement fitExtent (unlikely in d3 v7), this call
-  // will be ignored.
   const padding = 20;
   if (typeof projection.fitExtent === 'function') {
     projection.fitExtent(
@@ -307,229 +354,261 @@ function drawCountry(feature) {
     );
   }
 
-  const path = d3.geoPath().projection(projection);
-
-  // Draw the country outline
-  // Determine user-selected stroke weight and colour
-  const strokeWeightEl = document.getElementById('stroke-weight');
-  const strokeColorEl = document.getElementById('stroke-color');
-  const animateEl = document.getElementById('animate-outline');
-  const backgroundColorEl = document.getElementById('background-color');
-  // Map stroke weight keywords to numeric stroke widths (in pixels)
-  const strokeMap = { light: 1, medium: 2, heavy: 3 };
-  const outlineWidth = strokeMap[strokeWeightEl.value] || 2;
-  const disputedWidth = outlineWidth * 0.66; // slightly thinner for disputed lines
-  const strokeColor = strokeColorEl.value || '#ffffff';
-  const animate = animateEl.checked;
-  // Update background colour of the drawing container
-  drawingContainer.style.backgroundColor = backgroundColorEl.value;
-
-  // Prepare to draw multiple polygons separately so that animation
-  // applies uniformly across all components (mainland and islands).
-  const lineStyleEl = document.getElementById('line-style');
-  const fillEnabledEl = document.getElementById('fill-enabled');
-  const fillColorEl = document.getElementById('fill-color');
-  const animDurationEl = document.getElementById('animation-duration');
-
-  // Determine line pattern based on the selected line style.  Solid lines
-  // have no dash pattern, dashed lines use a medium pattern, and dotted
-  // lines use a small pattern.  The pattern is applied after the
-  // animation completes so that the animation can reuse the dash array
-  // without interference.
-  let linePattern = null;
-  const styleValue = lineStyleEl ? lineStyleEl.value : 'solid';
-  if (styleValue === 'dashed') {
-    linePattern = '8,4';
-  } else if (styleValue === 'dotted') {
-    linePattern = '2,4';
-  }
-
-  // Determine fill for the outline.  If fill is not enabled, use 'none'.
-  const fillEnabled = fillEnabledEl ? fillEnabledEl.checked : false;
-  const fillColor = fillColorEl ? fillColorEl.value : '#000000';
-  const effectiveFill = fillEnabled ? fillColor : 'none';
-
-  // Determine animation duration in milliseconds.  Slider value is in
-  // seconds, so multiply by 1000.  Fall back to 20 seconds if slider is
-  // missing or invalid.
-  let durationMs = 20000;
-  if (animDurationEl && !isNaN(animDurationEl.value)) {
-    const val = parseFloat(animDurationEl.value);
-    if (!isNaN(val)) durationMs = val * 1000;
-  }
-
-  // Extract individual polygons from the selected feature.  MultiPolygon
-  // geometries contain multiple arrays of linear rings; we convert each
-  // component into its own Polygon geometry for separate rendering.
+  // Extract polygons (arrays of linear rings) from the feature.  A
+  // MultiPolygon contains multiple coordinate sets; treat each as its
+  // own polygon.  Each polygon is represented as an array of rings,
+  // where the first ring is the outer boundary and subsequent rings
+  // (if any) are holes.  Coordinates are given in [lon, lat] pairs.
   const polys = [];
   const geom = feature.geometry;
   if (geom) {
     if (geom.type === 'Polygon') {
-      polys.push(geom);
+      polys.push(geom.coordinates);
     } else if (geom.type === 'MultiPolygon') {
       geom.coordinates.forEach((coords) => {
-        polys.push({ type: 'Polygon', coordinates: coords });
+        polys.push(coords);
       });
     }
   }
 
-  // Create an SVG path for each polygon.  We first append the path
-  // elements to compute their lengths, then we assign stroke, fill and
-  // animation properties afterwards.  Each entry in pathElements stores
-  // both the selection and the corresponding path string.
-  const pathElements = [];
-  const lengths = [];
-  polys.forEach((poly) => {
-    // Compute a path string explicitly for this polygon.  Passing a
-    // function directly as the 'd' attribute can cause issues when the
-    // datum is a bare geometry rather than a full feature, so we call
-    // the path generator to obtain the string.
-    const dString = path(poly);
-    const p = svg.append('path').attr('d', dString);
-    pathElements.push({ path: p, d: dString });
-    // Compute total length for animation.  Some browsers may throw if
-    // getTotalLength() is called on an element that is not yet rendered;
-    // wrapping in try/catch to be safe.
-    let len = 0;
-    try {
-      len = p.node().getTotalLength();
-    } catch (e) {
-      len = 0;
-    }
-    lengths.push(len);
-  });
-  // Determine the maximum length across all polygon paths.  Using
-  // the maximum ensures that small islands animate over the entire
-  // duration rather than appearing instantly.
-  const maxLength = lengths.length ? Math.max(...lengths) : 0;
-
-  // Decide dash array and offset values for animation.  Regardless of the
-  // selected line style, the outline should be drawn uniformly using a
-  // single long dash equal to the path length.  This avoids pre‑rendering
-  // dashed or dotted segments during the draw phase.  Once the
-  // animation completes, the chosen dash pattern (if any) will be
-  // applied in the end callback below.  These values are reused for
-  // all polygons.
-  // dashArrayAnim and dashOffsetAnim are no longer used; the outline
-  // animation always uses maxLength directly.
-
-  // Apply stroke, fill and animation settings to each polygon path.  For
-  // dashed/dotted outlines with animation we use an SVG mask on the
-  // stroke only.  The fill is drawn as a separate path that is
-  // hidden until the animation completes.  For solid outlines the fill
-  // is also hidden until the stroke has been drawn.  Creating
-  // separate fill paths prevents the mask from clipping the interior
-  // region of the country.
-  pathElements.forEach(({ path: p, d: dString }) => {
-    // Create a separate fill path behind the stroke path.  This path
-    // carries the fill colour but no stroke.  It is initially hidden
-    // when animation is enabled and will fade in once the outline
-    // animation finishes.  Placing the fill behind the stroke
-    // preserves z‑order.
-    const fillPath = svg.append('path')
-      .attr('d', dString)
-      .attr('stroke', 'none')
-      .attr('fill', effectiveFill);
-    // Move the fill behind existing paths for correct layering.
-    fillPath.lower();
-    // Hide the fill when animating; reveal at end.  If no animation or
-    // fill is disabled, leave it visible if fill is enabled.
-    if (animate && maxLength > 0 && fillEnabled) {
-      fillPath.attr('opacity', 0);
-    }
-    // Configure the stroke path.  Remove any fill from the stroke path
-    // since the fill is drawn separately.
-    p.attr('stroke', strokeColor)
-      .attr('stroke-width', outlineWidth)
-      .attr('fill', 'none');
-    if (animate && maxLength > 0) {
-      if (linePattern) {
-        // Create a mask that will reveal the stroke gradually.  The
-        // mask path draws with a single long dash equal to the path
-        // length; once complete, the mask remains visible so the
-        // dashed pattern is displayed in full.  The fill path is
-        // revealed at the end of the animation.
-        const uniqueId = 'mask-' + Math.random().toString(36).slice(2);
-        let defs = svg.select('defs');
-        if (defs.empty()) {
-          defs = svg.append('defs');
+  // Precompute projected coordinate arrays and segment information for
+  // each polygon.  For animation we flatten all ring segments into a
+  // single list, marking the beginning of each ring with a moveTo flag.
+  const polyDatas = [];
+  let maxTotalLength = 0;
+  polys.forEach((polyRings) => {
+    // Project each ring into screen coordinates.  Each projected ring
+    // is an array of [x, y] pairs.
+    const projRings = polyRings.map((ring) => {
+      return ring.map((coord) => {
+        const [x, y] = projection(coord);
+        return [x, y];
+      });
+    });
+    // Flatten segments across all rings.  Each segment stores start,
+    // end, length and a flag indicating whether to move without drawing
+    // (true for the first segment of each ring).  We skip the final
+    // closing segment because the ring is implicitly closed.
+    const segments = [];
+    let totalLength = 0;
+    projRings.forEach((ring) => {
+      if (ring.length < 2) return;
+      for (let i = 0; i < ring.length - 1; i++) {
+        const start = ring[i];
+        const end = ring[i + 1];
+        const dx = end[0] - start[0];
+        const dy = end[1] - start[1];
+        const len = Math.hypot(dx, dy);
+        const moveTo = i === 0; // move at start of each ring
+        segments.push({ start, end, length: len, moveTo });
+        totalLength += len;
+      }
+    });
+    // Some polygons might have no segments (degenerate); skip them
+    if (segments.length === 0) return;
+    if (totalLength > maxTotalLength) maxTotalLength = totalLength;
+    // Create graphics elements for stroke, glow and fill
+    const lineGraphics = new PIXI.Graphics();
+    const glowGraphics = new PIXI.Graphics();
+    let fillGraphics = null;
+    if (theme.fill != null && theme.fillAlpha > 0) {
+      fillGraphics = new PIXI.Graphics();
+      // Draw the fill geometry immediately; hide it until animation completes
+      fillGraphics.beginFill(theme.fill, theme.fillAlpha);
+      projRings.forEach((ring) => {
+        if (ring.length < 2) return;
+        fillGraphics.moveTo(ring[0][0], ring[0][1]);
+        for (let i = 1; i < ring.length; i++) {
+          fillGraphics.lineTo(ring[i][0], ring[i][1]);
         }
-        const mask = defs
-          .append('mask')
-          .attr('id', uniqueId);
-        mask
-          .append('path')
-          .attr('d', dString)
-          .attr('fill', 'none')
-          .attr('stroke', 'white')
-          .attr('stroke-width', outlineWidth)
-          .attr('stroke-dasharray', maxLength)
-          .attr('stroke-dashoffset', maxLength)
-          .transition()
-          .duration(durationMs)
-          .ease(d3.easeLinear)
-          .attr('stroke-dashoffset', 0)
-          .on('end', function() {
-            d3.select(this).attr('stroke-dashoffset', null);
-            // Reveal the fill once the outline is drawn
-            if (fillEnabled) fillPath.attr('opacity', 1);
-          });
-        // Apply the dash pattern and mask to the outline.  The
-        // dash pattern will be visible as soon as the mask reveals
-        // segments of the path.
-        p.attr('stroke-dasharray', linePattern)
-          .attr('mask', `url(#${uniqueId})`);
-      } else {
-        // Solid line animation: draw using a single dash equal to
-        // the path length.  After animation, remove dash attrs and
-        // reveal fill (if enabled).
-        p.attr('stroke-dasharray', maxLength)
-          .attr('stroke-dashoffset', maxLength)
-          .transition()
-          .duration(durationMs)
-          .ease(d3.easeLinear)
-          .attr('stroke-dashoffset', 0)
-          .on('end', () => {
-            p.attr('stroke-dasharray', null);
-            p.attr('stroke-dashoffset', null);
-            if (fillEnabled) fillPath.attr('opacity', 1);
-          });
-      }
-    } else {
-      // Not animated: assign stroke pattern immediately and show fill
-      if (linePattern) {
-        p.attr('stroke-dasharray', linePattern);
-      } else {
-        p.attr('stroke-dasharray', null);
-      }
-      p.attr('stroke-dashoffset', null);
-      // Show fill if enabled
-      if (fillEnabled) fillPath.attr('opacity', 1);
-      else fillPath.attr('opacity', 0);
+      });
+      fillGraphics.endFill();
+      fillGraphics.visible = false;
     }
+    // Glow graphics: thicker stroke with blur and additive blending
+    if (theme.glow != null && theme.glowAlpha > 0) {
+      const glowWidth = theme.glowSize || 6;
+      glowGraphics.lineStyle(glowWidth, theme.glow, theme.glowAlpha);
+      glowGraphics.blendMode = PIXI.BLEND_MODES.ADD;
+      // Optionally apply a blur filter for soft glow.  Reduce intensity
+      // in performance mode by lowering blur radius and alpha.
+      const blurRadius = perfMode ? Math.max(1, (theme.glowSize || 6) / 2) : (theme.glowSize || 6);
+      try {
+        const blurFilter = new PIXI.filters.BlurFilter(blurRadius);
+        glowGraphics.filters = [blurFilter];
+      } catch (e) {
+        // BlurFilter may not be available; ignore if not
+      }
+    }
+    // Line graphics: base outline
+    const strokeWidth = 2; // fixed width for outline
+    lineGraphics.lineStyle(strokeWidth, theme.stroke, 1);
+    polyDatas.push({ segments, totalLength, lineGraphics, glowGraphics, fillGraphics });
   });
 
-  // Compute bounding box of the selected country in geographic coordinates.
-  const featureBbox = d3.geoBounds(feature);
+  // Build a container for the current draw.  We will add glow, line and
+  // fill graphics in proper order.  Fill is added first so it sits
+  // beneath the stroke and glow.  Glow is added before the line so
+  // that it appears behind the crisp outline.
+  const container = new PIXI.Container();
+  polyDatas.forEach((pd) => {
+    if (pd.fillGraphics) {
+      container.addChild(pd.fillGraphics);
+    }
+    if (theme.glow != null && theme.glowAlpha > 0) {
+      container.addChild(pd.glowGraphics);
+    }
+    container.addChild(pd.lineGraphics);
+  });
+  pixiApp.stage.addChild(container);
 
-  // Filter disputed lines that intersect the selected country's bbox.
-  const relevantLines = precomputedDisputed.filter((d) =>
-    intersects(featureBbox, d.bbox)
-  );
+  // Helper function to draw a partial path on a graphics object.  It
+  // draws up to drawLength along the segment list.  If drawLength is
+  // greater than the total length, the entire path is drawn.  When
+  // moveTo flag is true for a segment, the drawing cursor jumps to
+  // the start point without drawing a connecting line.
+  function drawSegments(graphics, segments, drawLength, lineWidth, color, alpha) {
+    graphics.clear();
+    // Set line style; default alpha is 1 if unspecified
+    const a = alpha !== undefined ? alpha : 1;
+    graphics.lineStyle(lineWidth, color, a);
+    let remaining = drawLength;
+    for (const seg of segments) {
+      if (seg.moveTo) {
+        graphics.moveTo(seg.start[0], seg.start[1]);
+      }
+      if (remaining <= 0) {
+        break;
+      }
+      if (remaining >= seg.length) {
+        // Draw the entire segment
+        graphics.lineTo(seg.end[0], seg.end[1]);
+        remaining -= seg.length;
+      } else {
+        // Draw a partial segment
+        const t = remaining / seg.length;
+        const x = seg.start[0] + (seg.end[0] - seg.start[0]) * t;
+        const y = seg.start[1] + (seg.end[1] - seg.start[1]) * t;
+        graphics.lineTo(x, y);
+        remaining = 0;
+      }
+    }
+  }
 
-  // Draw dashed disputed segments.  They are not animated and are
-  // slightly thinner than the main outline.  Always use a dashed
-  // pattern for disputed borders.
-  svg
-    .selectAll('path.disputed')
-    .data(relevantLines.map((d) => d.feature))
-    .join('path')
-    .attr('class', 'disputed')
-    .attr('d', path)
-    .attr('stroke', '#ff8080')
-    .attr('stroke-width', disputedWidth)
-    .attr('stroke-dasharray', '4,3')
-    .attr('fill', 'none');
+  // Function to draw dashed disputed lines.  Dashed patterns are
+  // approximated by repeatedly drawing and skipping segments of a
+  // specified pattern length.  Pattern is an array of dash/gap lengths.
+  function drawDashed(graphics, points, pattern, width, color, alpha) {
+    graphics.lineStyle(width, color, alpha);
+    let patternIndex = 0;
+    let draw = true;
+    let remainingSegment = pattern[0];
+    graphics.moveTo(points[0][0], points[0][1]);
+    for (let i = 0; i < points.length - 1; i++) {
+      const start = points[i];
+      const end = points[i + 1];
+      const dx = end[0] - start[0];
+      const dy = end[1] - start[1];
+      let segmentLength = Math.hypot(dx, dy);
+      let sx = start[0];
+      let sy = start[1];
+      while (segmentLength > 0) {
+        const step = Math.min(remainingSegment, segmentLength);
+        const t = step / segmentLength;
+        const ex = sx + dx * (step / Math.hypot(dx, dy));
+        const ey = sy + dy * (step / Math.hypot(dx, dy));
+        if (draw) {
+          graphics.lineTo(ex, ey);
+        } else {
+          graphics.moveTo(ex, ey);
+        }
+        segmentLength -= step;
+        remainingSegment -= step;
+        sx = ex;
+        sy = ey;
+        if (remainingSegment <= 0) {
+          patternIndex = (patternIndex + 1) % pattern.length;
+          remainingSegment = pattern[patternIndex];
+          draw = !draw;
+        }
+      }
+    }
+  }
+
+  // Render function: draws each polygon based on current progress (0–1).
+  function render(progress) {
+    const globalLength = maxTotalLength * progress;
+    polyDatas.forEach((pd) => {
+      const drawLength = Math.min(globalLength, pd.totalLength);
+      // Draw glow first
+      if (theme.glow != null && theme.glowAlpha > 0) {
+        const alpha = perfMode ? Math.min(theme.glowAlpha, 0.3) : theme.glowAlpha;
+        const blurWidth = theme.glowSize || 6;
+        // Reapply blur filter with reduced radius in perf mode
+        if (pd.glowGraphics.filters && pd.glowGraphics.filters[0] instanceof PIXI.filters.BlurFilter) {
+          const bf = pd.glowGraphics.filters[0];
+          bf.blur = perfMode ? Math.max(1, blurWidth / 2) : blurWidth;
+        }
+        drawSegments(pd.glowGraphics, pd.segments, drawLength, theme.glowSize || 6, theme.glow, alpha);
+      }
+      // Draw outline
+      drawSegments(pd.lineGraphics, pd.segments, drawLength, 2, theme.stroke, 1);
+      // Show fill when complete
+      if (pd.fillGraphics) {
+        pd.fillGraphics.visible = drawLength >= pd.totalLength;
+      }
+    });
+  }
+
+  // Draw disputed borders using dashed red lines.  Disputed segments are
+  // static (non‑animated) and always rendered on top of the country.
+  function drawDisputedLines() {
+    // Compute bounding box of the selected country in geographic coordinates
+    const featureBbox = d3.geoBounds(feature);
+    // Filter relevant disputed lines that intersect the bbox
+    const relevantLines = precomputedDisputed.filter((d) => intersects(featureBbox, d.bbox));
+    if (relevantLines.length === 0) return;
+    const disputedContainer = new PIXI.Container();
+    relevantLines.forEach((d) => {
+      const f = d.feature;
+      if (!f.geometry || f.geometry.type !== 'LineString') return;
+      const coords = f.geometry.coordinates;
+      // Project each coordinate
+      const pts = coords.map((c) => {
+        const [x, y] = projection(c);
+        return [x, y];
+      });
+      // Create a graphics for this line
+      const g = new PIXI.Graphics();
+      // Use a red colour similar to previous versions
+      drawDashed(g, pts, [4, 3], 1.5, 0xff8080, 1);
+      disputedContainer.addChild(g);
+    });
+    pixiApp.stage.addChild(disputedContainer);
+  }
+
+  // Start the rendering.  If animation is disabled or the geometry has
+  // no length, draw the final state immediately.  Otherwise, animate
+  // over the specified duration.  Use PixiJS ticker for smooth updates.
+  if (!animate || maxTotalLength === 0) {
+    render(1);
+    drawDisputedLines();
+  } else {
+    // Initialize progress to 0
+    render(0);
+    drawDisputedLines();
+    const startTime = performance.now();
+    function tick() {
+      const elapsed = performance.now() - startTime;
+      let t = elapsed / durationMs;
+      if (t > 1) t = 1;
+      render(t);
+      if (t >= 1) {
+        pixiApp.ticker.remove(tick);
+      }
+    }
+    pixiApp.ticker.add(tick);
+  }
 }
 
 /**
