@@ -389,19 +389,15 @@ function drawCountry(feature) {
   // duration rather than appearing instantly.
   const maxLength = lengths.length ? Math.max(...lengths) : 0;
 
-  // Decide dash array and offset values for animation.  For dashed or dotted
-  // lines, use the pattern during animation so the pattern appears while
-  // drawing.  For solid lines, animate as a single long dash equal to
-  // maxLength.  These values are reused for all polygons.
-  let dashArrayAnim;
-  let dashOffsetAnim;
-  if (linePattern) {
-    dashArrayAnim = linePattern;
-    dashOffsetAnim = maxLength;
-  } else {
-    dashArrayAnim = maxLength;
-    dashOffsetAnim = maxLength;
-  }
+  // Decide dash array and offset values for animation.  Regardless of the
+  // selected line style, the outline should be drawn uniformly using a
+  // single long dash equal to the path length.  This avoids pre‑rendering
+  // dashed or dotted segments during the draw phase.  Once the
+  // animation completes, the chosen dash pattern (if any) will be
+  // applied in the end callback below.  These values are reused for
+  // all polygons.
+  const dashArrayAnim = maxLength;
+  const dashOffsetAnim = maxLength;
 
   // Apply stroke, fill and animation settings to each polygon path.
   pathElements.forEach((p) => {
@@ -409,9 +405,10 @@ function drawCountry(feature) {
       .attr('stroke-width', outlineWidth)
       .attr('fill', effectiveFill);
     if (animate && maxLength > 0) {
-      // Set dash pattern and offset for the animation phase.  Using
-      // dashArrayAnim ensures dashed/dotted patterns are visible during
-      // drawing.
+      // Set dash pattern and offset for the animation phase.  The
+      // dashArrayAnim uses the full path length so that the outline is
+      // drawn uniformly from start to finish, regardless of the
+      // eventual dash pattern.
       p.attr('stroke-dasharray', dashArrayAnim)
         .attr('stroke-dashoffset', dashOffsetAnim)
         .transition()
