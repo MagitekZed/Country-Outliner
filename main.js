@@ -362,7 +362,8 @@ function drawCountry(feature) {
 
   // Create an SVG path for each polygon.  We first append the path
   // elements to compute their lengths, then we assign stroke, fill and
-  // animation properties afterwards.
+  // animation properties afterwards.  Each entry in pathElements stores
+  // both the selection and the corresponding path string.
   const pathElements = [];
   const lengths = [];
   polys.forEach((poly) => {
@@ -372,7 +373,7 @@ function drawCountry(feature) {
     // the path generator to obtain the string.
     const dString = path(poly);
     const p = svg.append('path').attr('d', dString);
-    pathElements.push(p);
+    pathElements.push({ path: p, d: dString });
     // Compute total length for animation.  Some browsers may throw if
     // getTotalLength() is called on an element that is not yet rendered;
     // wrapping in try/catch to be safe.
@@ -396,43 +397,70 @@ function drawCountry(feature) {
   // animation completes, the chosen dash pattern (if any) will be
   // applied in the end callback below.  These values are reused for
   // all polygons.
-  const dashArrayAnim = maxLength;
-  const dashOffsetAnim = maxLength;
+  // dashArrayAnim and dashOffsetAnim are no longer used; the outline
+  // animation always uses maxLength directly.
 
   // Apply stroke, fill and animation settings to each polygon path.
-  pathElements.forEach((p) => {
+  pathElements.forEach(({ path: p, d: dString }) => {
     p.attr('stroke', strokeColor)
       .attr('stroke-width', outlineWidth)
       .attr('fill', effectiveFill);
     if (animate && maxLength > 0) {
-      // Set dash pattern and offset for the animation phase.  The
-      // dashArrayAnim uses the full path length so that the outline is
-      // drawn uniformly from start to finish, regardless of the
-      // eventual dash pattern.
-      p.attr('stroke-dasharray', dashArrayAnim)
-        .attr('stroke-dashoffset', dashOffsetAnim)
-        .transition()
-        .duration(durationMs)
-        .ease(d3.easeLinear)
-        .attr('stroke-dashoffset', 0)
-        .on('end', () => {
-          // After animation finishes, remove the dashoffset and
-          // reapply the selected line style.  If no pattern is
-          // selected, clear the dasharray.
-          if (linePattern) {
-            p.attr('stroke-dasharray', linePattern);
-          } else {
+      if (linePattern) {
+        // For dashed or dotted outlines, use a mask to reveal the pattern
+        // gradually along the path.  The mask path animates using a long
+        // dash equal to the total length, while the main path uses the
+        // selected dash pattern and is clipped by the mask.
+        const uniqueId = 'mask-' + Math.random().toString(36).slice(2);
+        // Ensure a <defs> element exists on this SVG
+        let defs = svg.select('defs');
+        if (defs.empty()) {
+          defs = svg.append('defs');
+        }
+        const mask = defs
+          .append('mask')
+          .attr('id', uniqueId);
+        mask
+          .append('path')
+          .attr('d', dString)
+          .attr('fill', 'none')
+          .attr('stroke', 'white')
+          .attr('stroke-width', outlineWidth)
+          .attr('stroke-dasharray', maxLength)
+          .attr('stroke-dashoffset', maxLength)
+          .transition()
+          .duration(durationMs)
+          .ease(d3.easeLinear)
+          .attr('stroke-dashoffset', 0)
+          .on('end', function() {
+            d3.select(this).attr('stroke-dashoffset', null);
+          });
+        // Apply the dash pattern and mask to the outline path.  The pattern
+        // will be revealed gradually as the mask stroke draws.
+        p.attr('stroke-dasharray', linePattern)
+          .attr('mask', `url(#${uniqueId})`);
+      } else {
+        // For solid lines, animate using a single long dash equal to the
+        // path length.  Remove dash attributes after the animation finishes.
+        p.attr('stroke-dasharray', maxLength)
+          .attr('stroke-dashoffset', maxLength)
+          .transition()
+          .duration(durationMs)
+          .ease(d3.easeLinear)
+          .attr('stroke-dashoffset', 0)
+          .on('end', () => {
             p.attr('stroke-dasharray', null);
-          }
-          p.attr('stroke-dashoffset', null);
-        });
+            p.attr('stroke-dashoffset', null);
+          });
+      }
     } else {
-      // If animation is disabled, apply the pattern immediately.
+      // If animation is disabled, apply the pattern (if any) immediately.
       if (linePattern) {
         p.attr('stroke-dasharray', linePattern);
       } else {
         p.attr('stroke-dasharray', null);
       }
+      p.attr('stroke-dashoffset', null);
     }
   });
 
