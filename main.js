@@ -132,6 +132,10 @@ window.addEventListener('DOMContentLoaded', () => {
       // Verify the renderer and view exist before using them.
       if (app.renderer && app.renderer.view) {
         pixiApp = app;
+        // Ensure the canvas scales to fill the drawing container.  Without
+        // these styles, the canvas may not fill the available space.
+        pixiApp.view.style.width = '100%';
+        pixiApp.view.style.height = '100%';
         drawingContainer.appendChild(pixiApp.view);
         usePixi = true;
         console.log('PixiJS initialised successfully', pixiApp);
@@ -370,7 +374,17 @@ function drawCountry(feature) {
   // height of the drawing area each time in case the container has
   // resized (responsive design).  Fit the projection to the container
   // with 20 px padding on each side.
-  const { width, height } = drawingContainer.getBoundingClientRect();
+  // Resize the Pixi renderer to match the current container size.  This
+  // ensures the projection fits the actual canvas dimensions rather than
+  // a potentially stale bounding box.  Use the container’s clientWidth
+  // and clientHeight to avoid fractional pixels from getBoundingClientRect().
+  const width = drawingContainer.clientWidth;
+  const height = drawingContainer.clientHeight;
+  // Resize renderer to current container size.  PixiJS will update the
+  // internal resolution and view size accordingly.
+  if (pixiApp && pixiApp.renderer) {
+    pixiApp.renderer.resize(width, height);
+  }
   let projection;
   let projectionType = 'equalEarth';
   try {
