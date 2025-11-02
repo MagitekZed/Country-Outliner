@@ -413,19 +413,43 @@ function drawCountry(feature) {
   // dashArrayAnim and dashOffsetAnim are no longer used; the outline
   // animation always uses maxLength directly.
 
-  // Apply stroke, fill and animation settings to each polygon path.
+  // Apply stroke, fill and animation settings to each polygon path.  For
+  // dashed/dotted outlines with animation we use an SVG mask on the
+  // stroke only.  The fill is drawn as a separate path that is
+  // hidden until the animation completes.  For solid outlines the fill
+  // is also hidden until the stroke has been drawn.  Creating
+  // separate fill paths prevents the mask from clipping the interior
+  // region of the country.
   pathElements.forEach(({ path: p, d: dString }) => {
+    // Create a separate fill path behind the stroke path.  This path
+    // carries the fill colour but no stroke.  It is initially hidden
+    // when animation is enabled and will fade in once the outline
+    // animation finishes.  Placing the fill behind the stroke
+    // preserves z‑order.
+    const fillPath = svg.append('path')
+      .attr('d', dString)
+      .attr('stroke', 'none')
+      .attr('fill', effectiveFill);
+    // Move the fill behind existing paths for correct layering.
+    fillPath.lower();
+    // Hide the fill when animating; reveal at end.  If no animation or
+    // fill is disabled, leave it visible if fill is enabled.
+    if (animate && maxLength > 0 && fillEnabled) {
+      fillPath.attr('opacity', 0);
+    }
+    // Configure the stroke path.  Remove any fill from the stroke path
+    // since the fill is drawn separately.
     p.attr('stroke', strokeColor)
       .attr('stroke-width', outlineWidth)
-      .attr('fill', effectiveFill);
+      .attr('fill', 'none');
     if (animate && maxLength > 0) {
       if (linePattern) {
-        // For dashed or dotted outlines, use a mask to reveal the pattern
-        // gradually along the path.  The mask path animates using a long
-        // dash equal to the total length, while the main path uses the
-        // selected dash pattern and is clipped by the mask.
+        // Create a mask that will reveal the stroke gradually.  The
+        // mask path draws with a single long dash equal to the path
+        // length; once complete, the mask remains visible so the
+        // dashed pattern is displayed in full.  The fill path is
+        // revealed at the end of the animation.
         const uniqueId = 'mask-' + Math.random().toString(36).slice(2);
-        // Ensure a <defs> element exists on this SVG
         let defs = svg.select('defs');
         if (defs.empty()) {
           defs = svg.append('defs');
@@ -447,14 +471,18 @@ function drawCountry(feature) {
           .attr('stroke-dashoffset', 0)
           .on('end', function() {
             d3.select(this).attr('stroke-dashoffset', null);
+            // Reveal the fill once the outline is drawn
+            if (fillEnabled) fillPath.attr('opacity', 1);
           });
-        // Apply the dash pattern and mask to the outline path.  The pattern
-        // will be revealed gradually as the mask stroke draws.
+        // Apply the dash pattern and mask to the outline.  The
+        // dash pattern will be visible as soon as the mask reveals
+        // segments of the path.
         p.attr('stroke-dasharray', linePattern)
           .attr('mask', `url(#${uniqueId})`);
       } else {
-        // For solid lines, animate using a single long dash equal to the
-        // path length.  Remove dash attributes after the animation finishes.
+        // Solid line animation: draw using a single dash equal to
+        // the path length.  After animation, remove dash attrs and
+        // reveal fill (if enabled).
         p.attr('stroke-dasharray', maxLength)
           .attr('stroke-dashoffset', maxLength)
           .transition()
@@ -464,16 +492,20 @@ function drawCountry(feature) {
           .on('end', () => {
             p.attr('stroke-dasharray', null);
             p.attr('stroke-dashoffset', null);
+            if (fillEnabled) fillPath.attr('opacity', 1);
           });
       }
     } else {
-      // If animation is disabled, apply the pattern (if any) immediately.
+      // Not animated: assign stroke pattern immediately and show fill
       if (linePattern) {
         p.attr('stroke-dasharray', linePattern);
       } else {
         p.attr('stroke-dasharray', null);
       }
       p.attr('stroke-dashoffset', null);
+      // Show fill if enabled
+      if (fillEnabled) fillPath.attr('opacity', 1);
+      else fillPath.attr('opacity', 0);
     }
   });
 
