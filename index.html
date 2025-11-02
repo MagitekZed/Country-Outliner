@@ -6,20 +6,18 @@
     <title>Country Outline Viewer</title>
     <link rel="stylesheet" href="styles.css" />
     <!--
-      This version of the Country Outline Viewer uses PixiJS v7 to render
-      outlines on a WebGL canvas.  The D3 library provides the
-      geographic projections and topology functions.  Scripts are loaded
-      via CDN and exposed on the global `d3` and `PIXI` objects.  See
-      main.js for details.
+      This version replaces the PixiJS renderer with a 2D canvas
+      drawing engine.  D3 is still used for geographic projections.
+      External scripts are loaded via CDN and exposed on the global
+      `d3` object.
     -->
     <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3-geo-projection@4"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.2.4/pixi.min.js"></script>
     <script src="main.js"></script>
   </head>
   <body>
     <div id="app">
-      <!-- Top bar containing the search input and menu toggle -->
+      <!-- Top bar: search and menu toggle for small screens -->
       <div id="top-bar">
         <div class="search-container">
           <label for="country-input">Select a country:</label>
@@ -37,7 +35,7 @@
           &#9776;
         </button>
       </div>
-      <!-- Collapsible controls panel.  Hidden by default on narrow screens -->
+      <!-- Controls panel -->
       <div id="controls" class="controls">
         <div class="control-item">
           <label for="theme-select">Theme</label>
@@ -76,8 +74,10 @@
           </div>
         </div>
       </div>
-      <!-- Container for the map.  PixiJS will append a canvas here.  -->
-      <div id="drawing-container" class="drawing-container"></div>
+      <!-- Drawing container: holds a 2D canvas -->
+      <div id="drawing-container" class="drawing-container">
+        <!-- Canvas inserted by main.js -->
+      </div>
     </div>
   </body>
 </html>

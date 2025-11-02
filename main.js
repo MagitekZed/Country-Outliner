@@ -1,60 +1,52 @@
-// Country Outline Viewer v1.2.6
+// Country Outline Viewer v1.2.7
 //
-// This release rebuilds the rendering engine from the ground up to
-// isolate and fix the blank‑canvas issue seen in earlier PixiJS
-// versions.  The new implementation draws country outlines using
-// plain PixiJS Graphics calls and D3 projections.  Animation and
-// fancy effects will be added back in a future update once the core
-// drawing functionality is confirmed to be reliable.  For now, the
-// application provides a responsive layout, theme switching and
-// optional performance mode toggle.  The only universal control
-// affecting the rendering is the theme selector; animation and
-// performance toggles currently have no effect but are left in
-// place for future expansion.
+// This build moves away from the WebGL renderer entirely and uses
+// the HTML5 Canvas 2D context for drawing.  D3 is used to compute
+// geographic projections and fit countries into the drawing area.
+// Animation and special effects are not implemented here; the
+// primary goal is to ensure that outlines render reliably on all
+// browsers and devices.  Once this baseline is stable, more
+// elaborate effects can be layered atop the 2D drawing.
 
-/* global d3, PIXI */
+/* global d3 */
 
-// Data source URLs.  These endpoints host Natural Earth 1:50m
-// geometry for admin 0 countries and disputed boundary lines.  They
-// include CORS headers to allow direct fetching from GitHub Pages or
-// local file contexts.
+// Remote GeoJSON sources
 const COUNTRIES_URL =
   'https://d2ad6b4ur7yvpq.cloudfront.net/naturalearth-3.3.0/ne_50m_admin_0_countries.geojson';
 const DISPUTED_URL =
   'https://d2ad6b4ur7yvpq.cloudfront.net/naturalearth-3.3.0/ne_50m_admin_0_boundary_lines_disputed_areas.geojson';
 
-// Theme definitions.  Each theme specifies stroke and optional fill
-// colours (in hex) as well as a background colour for the map area.
-// Additional properties (glow, shadow, etc.) are ignored in this
-// simplified build but retained for forward compatibility.
+// Themes (stroke, optional fill, background).  Colours are stored
+// as CSS hex strings for convenience when applying to the 2D
+// context.
 const THEMES = {
   wireframe: {
-    stroke: 0xffffff,
+    stroke: '#ffffff',
     fill: null,
     fillAlpha: 0,
-    bg: 0x0a0a0a,
+    bg: '#0a0a0a',
   },
   neon: {
-    stroke: 0x00e5ff,
+    stroke: '#00e5ff',
     fill: null,
     fillAlpha: 0,
-    bg: 0x000010,
+    bg: '#000010',
   },
   blueprint: {
-    stroke: 0xffffff,
-    fill: 0x0a2535,
+    stroke: '#ffffff',
+    fill: '#0a2535',
     fillAlpha: 0.15,
-    bg: 0x0a2535,
+    bg: '#0a2535',
   },
 };
 
-// State variables for loaded data and lookup tables.
+// Loaded data and lookup tables
 let countriesData;
 let disputedData;
 let precomputedDisputed = [];
 let nameToFeature = new Map();
 
-// DOM references set on DOMContentLoaded.
+// DOM elements
 let inputEl;
 let suggestionsEl;
 let drawingContainer;
@@ -64,16 +56,13 @@ let animateToggleEl;
 let animDurationEl;
 let durationDisplayEl;
 
-// PixiJS application and stage container.  Created once on
-// page load.  The view (canvas) is appended to the drawing
-// container; its renderer is resized on each draw.  If Pixi fails
-// to initialise (e.g. missing script or WebGL unsupported), these
-// variables remain null and the app cannot draw outlines.
-let pixiApp = null;
+// Canvas and rendering context
+let canvas;
+let ctx;
+
+// Currently selected feature
 let currentFeature = null;
 
-// Initialise the application once the DOM is ready.  Set up the
-// PixiJS renderer, load the datasets, and hook up UI events.
 window.addEventListener('DOMContentLoaded', () => {
   inputEl = document.getElementById('country-input');
   suggestionsEl = document.getElementById('suggestions');
@@ -83,36 +72,13 @@ window.addEventListener('DOMContentLoaded', () => {
   animateToggleEl = document.getElementById('animate-outline');
   animDurationEl = document.getElementById('animation-duration');
   durationDisplayEl = document.getElementById('duration-display');
-
-  // Initialise PixiJS.  Use a fixed starting size based on the
-  // container; we'll resize on each draw.  If PIXI is not defined
-  // (script failed to load) we leave pixiApp null and log an error.
-  try {
-    if (typeof PIXI !== 'undefined' && PIXI.Application) {
-      const width = drawingContainer.clientWidth || 800;
-      const height = drawingContainer.clientHeight || 600;
-      pixiApp = new PIXI.Application({
-        width,
-        height,
-        antialias: true,
-        autoDensity: true,
-        backgroundAlpha: 0,
-      });
-      // Style the canvas to fill its container.
-      pixiApp.view.style.width = '100%';
-      pixiApp.view.style.height = '100%';
-      drawingContainer.appendChild(pixiApp.view);
-      console.log('PixiJS initialised');
-    } else {
-      console.error('PIXI is undefined; cannot initialise PixiJS');
-    }
-  } catch (err) {
-    console.error('Error initialising PixiJS', err);
-    pixiApp = null;
-  }
-
-  // Set up the menu toggle on small screens.  On wider screens
-  // controls are always visible, so toggling has no effect.
+  // Create and append the canvas
+  canvas = document.createElement('canvas');
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  drawingContainer.appendChild(canvas);
+  ctx = canvas.getContext('2d');
+  // Menu toggle for mobile
   const menuBtn = document.getElementById('menu-toggle');
   const controlsPanel = document.getElementById('controls');
   if (menuBtn && controlsPanel) {
@@ -120,70 +86,55 @@ window.addEventListener('DOMContentLoaded', () => {
       controlsPanel.classList.toggle('open');
     });
   }
-
-  // Load GeoJSON data and set up the input after loading.  If
-  // fetching fails, display an error message.
+  // Load data
   loadData().catch((err) => {
     console.error('Failed to load data', err);
     showMessage('Failed to load map data.');
   });
 });
 
-/**
- * Fetch countries and disputed boundaries, then build lookup tables
- * and prepare for drawing.
- */
 async function loadData() {
   showMessage('Loading data…');
   const [cData, dData] = await Promise.all([
     fetch(COUNTRIES_URL).then((res) => res.json()),
     fetch(DISPUTED_URL).then((res) => res.json()),
   ]);
-  console.log('Data loaded', {
+  console.log('Loaded data', {
     countries: cData.features ? cData.features.length : 0,
     disputed: dData.features ? dData.features.length : 0,
   });
   countriesData = cData;
   disputedData = dData;
-  // Build name map for suggestions
+  // Build lookup
   countriesData.features.forEach((feat) => {
     const name = feat.properties.name || '';
     nameToFeature.set(normalize(name), feat);
   });
-  // Precompute bounding boxes of disputed lines for quick filtering
   precomputedDisputed = disputedData.features.map((feat) => {
     return { feature: feat, bbox: d3.geoBounds(feat) };
   });
-  // Remove loading message and initialise the UI
   clearMessage();
   setupInput();
 }
 
-/**
- * Set up the country search input and UI control handlers.
- */
 function setupInput() {
-  // Update suggestions as the user types
   inputEl.addEventListener('input', () => {
     const query = normalize(inputEl.value.trim());
     updateSuggestions(query);
   });
-  // Hide suggestions when clicking outside of the search box
   document.addEventListener('click', (evt) => {
     if (!suggestionsEl.contains(evt.target) && evt.target !== inputEl) {
       suggestionsEl.classList.remove('visible');
     }
   });
-  // Display initial duration
   if (durationDisplayEl) {
     durationDisplayEl.textContent = animDurationEl.value + 's';
   }
-  // When any control changes, redraw the current country
   function handleControlsChange() {
     if (durationDisplayEl) {
       durationDisplayEl.textContent = animDurationEl.value + 's';
     }
-    if (currentFeature && pixiApp) {
+    if (currentFeature) {
       drawCountry(currentFeature);
     }
   }
@@ -193,11 +144,6 @@ function setupInput() {
   animDurationEl.addEventListener('input', handleControlsChange);
 }
 
-/**
- * Update the suggestions list based on a normalized query.
- *
- * @param {string} query
- */
 function updateSuggestions(query) {
   suggestionsEl.innerHTML = '';
   if (!query) {
@@ -205,8 +151,8 @@ function updateSuggestions(query) {
     return;
   }
   const matches = [];
-  nameToFeature.forEach((feat, normName) => {
-    if (normName.includes(query)) {
+  nameToFeature.forEach((feat, norm) => {
+    if (norm.includes(query)) {
       matches.push({ name: feat.properties.name, feat });
     }
   });
@@ -229,46 +175,24 @@ function updateSuggestions(query) {
   suggestionsEl.classList.add('visible');
 }
 
-/**
- * Called when a suggestion is clicked.  Stores the selected feature
- * and triggers a draw.
- *
- * @param {object} feat GeoJSON feature
- */
 function selectCountry(feat) {
   currentFeature = feat;
-  console.log('Selecting country', feat.properties && feat.properties.name);
-  if (pixiApp) {
-    drawCountry(feat);
-  } else {
-    console.warn('PixiJS not initialised; cannot draw');
-  }
+  console.log('Selected', feat.properties && feat.properties.name);
+  drawCountry(feat);
 }
 
-/**
- * Draw the selected country using PixiJS.  This function is
- * intentionally simple: it clears the stage, sets up the D3
- * projection, fits it to the container and then draws each polygon
- * ring as a path on the Pixi stage.  There is no animation or
- * effects in this build.  Disputed borders are drawn as dashed red
- * lines over the outline.
- *
- * @param {object} feature GeoJSON feature
- */
 function drawCountry(feature) {
-  // Clear the Pixi stage
-  pixiApp.stage.removeChildren();
-  // Determine theme and apply background
+  // Determine container size and resize canvas
+  const rect = drawingContainer.getBoundingClientRect();
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+  // Clear canvas
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Apply background colour
   const themeName = themeSelectEl ? themeSelectEl.value : 'wireframe';
   const theme = THEMES[themeName] || THEMES.wireframe;
-  const bgHex = theme.bg != null ? theme.bg.toString(16).padStart(6, '0') : '000000';
-  drawingContainer.style.backgroundColor = `#${bgHex}`;
-  // Resize renderer to match container
-  const width = drawingContainer.clientWidth || 1;
-  const height = drawingContainer.clientHeight || 1;
-  pixiApp.renderer.resize(width, height);
-  // Choose projection: Albers USA for USA, rotated Equal Earth for
-  // Russia, default Equal Earth otherwise
+  drawingContainer.style.backgroundColor = theme.bg || '#000000';
+  // Choose projection
   let projection;
   const props = feature.properties || {};
   const isoA3 = (props.iso_a3 || props.adm0_a3 || props.ADM0_A3 || '').toString().toUpperCase();
@@ -290,18 +214,18 @@ function drawCountry(feature) {
   } else {
     projection = d3.geoEqualEarth();
   }
-  // Fit projection into container with padding
+  // Fit to container
   const padding = 20;
   if (typeof projection.fitExtent === 'function') {
     projection.fitExtent(
       [
         [padding, padding],
-        [width - padding, height - padding],
+        [canvas.width - padding, canvas.height - padding],
       ],
       feature
     );
   }
-  // Extract polygons from feature
+  // Extract polygons
   const polygons = [];
   const geom = feature.geometry;
   if (geom) {
@@ -311,83 +235,62 @@ function drawCountry(feature) {
       geom.coordinates.forEach((coords) => polygons.push(coords));
     }
   }
-  console.log('Drawing polygons', polygons.length);
-  // Draw each polygon: each polygon is an array of rings; each ring is an array of [lon, lat]
+  console.log('Drawing with Canvas polygons', polygons.length);
+  // Draw polygons
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = theme.stroke || '#ffffff';
   polygons.forEach((poly) => {
-    const g = new PIXI.Graphics();
-    // Set stroke style.  Use a sensible default if theme.stroke is undefined
-    const strokeColour = theme.stroke != null ? theme.stroke : 0xffffff;
-    g.lineStyle(2, strokeColour, 1);
-    // Begin fill if applicable
-    if (theme.fill != null && theme.fillAlpha > 0) {
-      g.beginFill(theme.fill, theme.fillAlpha);
+    // Fill if needed
+    if (theme.fill && theme.fillAlpha && theme.fillAlpha > 0) {
+      ctx.fillStyle = theme.fill;
+      ctx.globalAlpha = theme.fillAlpha;
+    } else {
+      ctx.fillStyle = 'transparent';
+      ctx.globalAlpha = 1;
     }
+    ctx.beginPath();
     poly.forEach((ring) => {
-      const pts = ring.map((coord) => projection(coord));
-      if (pts.length > 0) {
-        g.moveTo(pts[0][0], pts[0][1]);
-        for (let i = 1; i < pts.length; i++) {
-          g.lineTo(pts[i][0], pts[i][1]);
+      ring.forEach((coord, index) => {
+        const pt = projection(coord);
+        if (index === 0) {
+          ctx.moveTo(pt[0], pt[1]);
+        } else {
+          ctx.lineTo(pt[0], pt[1]);
         }
-        g.lineTo(pts[0][0], pts[0][1]);
-      }
+      });
+      // Close ring
+      const first = projection(ring[0]);
+      ctx.lineTo(first[0], first[1]);
     });
-    if (theme.fill != null && theme.fillAlpha > 0) {
-      g.endFill();
-    }
-    pixiApp.stage.addChild(g);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.stroke();
   });
-  // Draw disputed borders (red dashed lines)
+  // Draw disputed borders as red dashed lines
   const featureBbox = d3.geoBounds(feature);
   const relevant = precomputedDisputed.filter((d) => intersects(featureBbox, d.bbox));
+  ctx.save();
+  ctx.setLineDash([4, 3]);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = '#ff8080';
   relevant.forEach((d) => {
     const f = d.feature;
     if (!f.geometry || f.geometry.type !== 'LineString') return;
     const coords = f.geometry.coordinates;
-    const pts = coords.map((c) => projection(c));
-    const g = new PIXI.Graphics();
-    g.lineStyle(1.5, 0xff8080, 1);
-    // Simple dash pattern: alternate draw segments of fixed length
-    let drawSegment = true;
-    let dashRemaining = 5; // length of current segment
-    let px = pts[0][0];
-    let py = pts[0][1];
-    g.moveTo(px, py);
-    for (let i = 1; i < pts.length; i++) {
-      let qx = pts[i][0];
-      let qy = pts[i][1];
-      let dx = qx - px;
-      let dy = qy - py;
-      let segLen = Math.hypot(dx, dy);
-      while (segLen > 0.0001) {
-        const step = Math.min(dashRemaining, segLen);
-        const t = step / segLen;
-        const rx = px + dx * t;
-        const ry = py + dy * t;
-        if (drawSegment) {
-          g.lineTo(rx, ry);
-        } else {
-          g.moveTo(rx, ry);
-        }
-        segLen -= step;
-        px = rx;
-        py = ry;
-        dashRemaining -= step;
-        if (dashRemaining <= 0) {
-          drawSegment = !drawSegment;
-          dashRemaining = drawSegment ? 5 : 3; // alternate dash and gap lengths
-        }
+    ctx.beginPath();
+    coords.forEach((coord, index) => {
+      const pt = projection(coord);
+      if (index === 0) {
+        ctx.moveTo(pt[0], pt[1]);
+      } else {
+        ctx.lineTo(pt[0], pt[1]);
       }
-    }
-    pixiApp.stage.addChild(g);
+    });
+    ctx.stroke();
   });
+  ctx.restore();
 }
 
-/**
- * Check whether two bounding boxes intersect.  Each bbox is an
- * array [[minLon, minLat], [maxLon, maxLat]].  Returns true
- * if there is any overlap.
- */
 function intersects(bboxA, bboxB) {
   const [aMin, aMax] = bboxA;
   const [bMin, bMax] = bboxB;
@@ -396,10 +299,6 @@ function intersects(bboxA, bboxB) {
   return true;
 }
 
-/**
- * Normalize a string by removing diacritics and converting to
- * lowercase.  Used for searching country names.
- */
 function normalize(str) {
   return str
     .normalize('NFD')
@@ -407,9 +306,6 @@ function normalize(str) {
     .toLowerCase();
 }
 
-/**
- * Display a temporary message in the drawing container.
- */
 function showMessage(msg) {
   drawingContainer.innerHTML = '';
   const div = document.createElement('div');
@@ -418,9 +314,6 @@ function showMessage(msg) {
   drawingContainer.appendChild(div);
 }
 
-/**
- * Remove any loading messages from the drawing container.
- */
 function clearMessage() {
   const loading = drawingContainer.querySelector('.loading');
   if (loading) loading.remove();
