@@ -47,6 +47,12 @@ let durationDisplayEl;
 // automatically sized to fill it.
 let pixiApp = null;
 let currentDrawContainer = null;
+// Flag indicating whether the Pixi renderer was successfully initialised.
+// If false, the code falls back to an SVG based renderer that does not
+// require the PixiJS library.  The fallback preserves the basic
+// functionality (country outline, fill and disputed borders) and
+// supports animation, but omits glow and shadow effects.
+let usePixi = false;
 
 // Themes definition.  Each theme specifies stroke colour, glow
 // settings, optional shadow and fill.  Colours are provided as hex
@@ -99,16 +105,44 @@ window.addEventListener('DOMContentLoaded', () => {
   durationDisplayEl = document.getElementById('duration-display');
 
   // Initialise PixiJS application and append it to the drawing container.
+  // If PixiJS is unavailable or fails to initialise (e.g. missing CDN
+  // script or lack of WebGL support), we fall back to the SVG renderer.
+  // We perform additional runtime checks to ensure the renderer and its
+  // view are defined before attempting to append to the DOM.  Without
+  // these checks, calling drawingContainer.appendChild(pixiApp.view) when
+  // view is undefined would throw an error such as "Cannot read properties
+  // of undefined (reading 'canvas')".  Newer releases of PixiJS (v8+) can
+  // leave the renderer undefined if WebGL initialisation fails, so
+  // explicitly verify that both the renderer and view exist.
   try {
-    pixiApp = new PIXI.Application({
-      resizeTo: drawingContainer,
-      antialias: true,
-      autoDensity: true,
-      backgroundAlpha: 0,
-    });
-    drawingContainer.appendChild(pixiApp.view);
+    if (typeof PIXI !== 'undefined' && PIXI.Application) {
+      const app = new PIXI.Application({
+        resizeTo: drawingContainer,
+        antialias: true,
+        autoDensity: true,
+        backgroundAlpha: 0,
+      });
+      // PixiJS may fail to create a renderer if WebGL or Canvas are not
+      // available.  In such cases app.renderer will be undefined and
+      // attempting to access app.view will throw.  Check explicitly
+      // before using the application.
+      if (app.renderer && app.renderer.view) {
+        pixiApp = app;
+        drawingContainer.appendChild(pixiApp.view);
+        usePixi = true;
+      } else {
+        console.error('PixiJS initialisation failed: renderer or view is undefined');
+        pixiApp = null;
+        usePixi = false;
+      }
+    } else {
+      // PIXI is undefined; fall back to SVG renderer
+      usePixi = false;
+    }
   } catch (e) {
     console.error('Failed to initialise PixiJS', e);
+    pixiApp = null;
+    usePixi = false;
   }
 
   // Set up the responsive menu toggle for narrow screens.  On
@@ -197,7 +231,12 @@ function setupInput() {
       durationDisplayEl.textContent = animDurationEl.value + 's';
     }
     if (currentFeature) {
-      drawCountry(currentFeature);
+      // Redraw using the appropriate renderer based on the Pixi flag
+      if (usePixi) {
+        drawCountry(currentFeature);
+      } else {
+        drawCountryFallback(currentFeature);
+      }
     }
   }
   themeSelectEl.addEventListener('change', handleControlsChange);
@@ -257,8 +296,16 @@ function updateSuggestions(query) {
  * @param {object} feature GeoJSON feature representing the selected country
  */
 function selectCountry(feature) {
-  drawCountry(feature);
-  // store the selected feature so that changing styles can re-render it
+  // Draw the country using the appropriate renderer.  If Pixi was
+  // successfully initialised use the WebGL renderer; otherwise use the
+  // SVG fallback.  This allows the app to function even when the
+  // PixiJS script fails to load or WebGL is unavailable.
+  if (usePixi) {
+    drawCountry(feature);
+  } else {
+    drawCountryFallback(feature);
+  }
+  // Store the selected feature so that changing styles can re-render it
   currentFeature = feature;
 }
 
@@ -429,7 +476,24 @@ function drawCountry(feature) {
     if (theme.glow != null && theme.glowAlpha > 0) {
       const glowWidth = theme.glowSize || 6;
       glowGraphics.lineStyle(glowWidth, theme.glow, theme.glowAlpha);
-      glowGraphics.blendMode = PIXI.BLEND_MODES.ADD;
+      // Use additive blending for the glow if available.  PixiJS v8
+      // defines ADD in BLEND_MODES, but fall back to ADDITIVE or SCREEN
+      // if ADD is undefined.  Default to NORMAL when no additive
+      // blending is available.
+      let addMode = null;
+      if (typeof PIXI !== 'undefined' && PIXI.BLEND_MODES) {
+        addMode = PIXI.BLEND_MODES.ADD;
+        if (addMode === undefined) {
+          addMode = PIXI.BLEND_MODES.ADDITIVE;
+        }
+        if (addMode === undefined) {
+          addMode = PIXI.BLEND_MODES.SCREEN;
+        }
+        if (addMode === undefined) {
+          addMode = PIXI.BLEND_MODES.NORMAL;
+        }
+      }
+      glowGraphics.blendMode = addMode;
       // Optionally apply a blur filter for soft glow.  Reduce intensity
       // in performance mode by lowering blur radius and alpha.
       const blurRadius = perfMode ? Math.max(1, (theme.glowSize || 6) / 2) : (theme.glowSize || 6);
@@ -609,6 +673,205 @@ function drawCountry(feature) {
     }
     pixiApp.ticker.add(tick);
   }
+}
+
+/**
+ * Fallback renderer using SVG for browsers where PixiJS failed to
+ * initialise (e.g. the Pixi library is not loaded or WebGL is
+ * unavailable).  This function draws the selected country using d3
+ * projections and standard SVG paths.  It supports basic animation
+ * of the outline and optional fill, but does not implement glow or
+ * shadow effects.  The theme’s stroke and fill colours are used to
+ * style the paths.  Disputed borders are drawn with a dashed red
+ * stroke on top of the country.
+ *
+ * @param {object} feature GeoJSON feature representing the selected country
+ */
+function drawCountryFallback(feature) {
+  // Clear previous drawing and remove any loading message
+  drawingContainer.innerHTML = '';
+  clearMessage();
+
+  // Determine selected theme and UI settings
+  const themeName = themeSelectEl ? themeSelectEl.value : 'wireframe';
+  const theme = THEMES[themeName] || THEMES.wireframe;
+  const animate = animateToggleEl && animateToggleEl.checked;
+  // Determine animation duration (in ms)
+  let durationMs = 20000;
+  if (animDurationEl) {
+    const val = parseFloat(animDurationEl.value);
+    if (!isNaN(val)) durationMs = val * 1000;
+  }
+  // Apply background colour from theme
+  const bgHex = theme.bg != null ? theme.bg.toString(16).padStart(6, '0') : '000000';
+  drawingContainer.style.backgroundColor = `#${bgHex}`;
+
+  // Compute projection: replicate logic from the Pixi renderer to
+  // choose Equal Earth, Albers USA or rotated Equal Earth for Russia.
+  const { width, height } = drawingContainer.getBoundingClientRect();
+  let projection;
+  try {
+    const props = feature.properties || {};
+    const normName = normalize(
+      props.name || props.NAME || props.name_long || props.NAME_LONG || ''
+    );
+    const isoA3 = (
+      props.iso_a3 || props.adm0_a3 || props.ADM0_A3 || ''
+    )
+      .toString()
+      .toUpperCase();
+    if (
+      isoA3 === 'USA' ||
+      normName === 'united states' ||
+      normName === 'united states of america'
+    ) {
+      projection = d3.geoAlbersUsa();
+    } else if (
+      isoA3 === 'RUS' ||
+      normName === 'russia' ||
+      normName === 'russian federation'
+    ) {
+      const bounds = d3.geoBounds(feature);
+      const minLon = bounds[0][0];
+      const maxLon = bounds[1][0];
+      let midpoint;
+      if (maxLon < minLon) {
+        midpoint = (minLon + (maxLon + 360)) / 2;
+        if (midpoint > 180) midpoint -= 360;
+      } else {
+        midpoint = (minLon + maxLon) / 2;
+      }
+      projection = d3.geoEqualEarth().rotate([-midpoint, 0]);
+    } else {
+      projection = d3.geoEqualEarth();
+    }
+  } catch (e) {
+    projection = d3.geoEqualEarth();
+  }
+  const padding = 20;
+  if (typeof projection.fitExtent === 'function') {
+    projection.fitExtent(
+      [
+        [padding, padding],
+        [width - padding, height - padding],
+      ],
+      feature
+    );
+  }
+  // Create an SVG element sized to the drawing container
+  const svg = d3
+    .select(drawingContainer)
+    .append('svg')
+    .attr('width', width)
+    .attr('height', height)
+    .attr('viewBox', `0 0 ${width} ${height}`);
+
+  // Path generator using the projection
+  const pathGen = d3.geoPath().projection(projection);
+
+  // Extract polygons from the feature.  For MultiPolygons we treat each
+  // constituent polygon separately to compute individual path lengths
+  // and apply the animation consistently.
+  const polygons = [];
+  const geom = feature.geometry;
+  if (geom) {
+    if (geom.type === 'Polygon') {
+      polygons.push({ type: 'Polygon', coordinates: geom.coordinates });
+    } else if (geom.type === 'MultiPolygon') {
+      geom.coordinates.forEach((coords) => {
+        polygons.push({ type: 'Polygon', coordinates: coords });
+      });
+    }
+  }
+  // Prepare arrays to store SVG path elements and their lengths
+  const polyPaths = [];
+  const lengths = [];
+  // Convert theme colours to CSS hex strings
+  const strokeHex = theme.stroke != null
+    ? '#' + theme.stroke.toString(16).padStart(6, '0')
+    : '#ffffff';
+  const fillHex = theme.fill != null
+    ? '#' + theme.fill.toString(16).padStart(6, '0')
+    : null;
+  const fillAlpha = theme.fillAlpha != null ? theme.fillAlpha : 0;
+  // Draw each polygon; compute length and create fill path behind stroke
+  polygons.forEach((poly) => {
+    const dStr = pathGen(poly);
+    // Create stroke path
+    const strokePath = svg.append('path')
+      .attr('d', dStr)
+      .attr('fill', 'none')
+      .attr('stroke', strokeHex)
+      .attr('stroke-width', 2)
+      .attr('vector-effect', 'non-scaling-stroke');
+    // Compute length; catching potential errors
+    let len = 0;
+    try {
+      len = strokePath.node().getTotalLength();
+    } catch (e) {
+      len = 0;
+    }
+    lengths.push(len);
+    // Create fill path behind stroke if fill is defined and alpha > 0
+    let fillPath = null;
+    if (fillHex && fillAlpha > 0) {
+      fillPath = svg.append('path')
+        .attr('d', dStr)
+        .attr('fill', fillHex)
+        .attr('fill-opacity', fillAlpha)
+        .attr('stroke', 'none');
+      // Move fill behind stroke
+      fillPath.lower();
+      // Hide fill until animation completes
+      if (animate && len > 0) {
+        fillPath.attr('opacity', 0);
+      }
+    }
+    polyPaths.push({ strokePath, fillPath, length: len });
+  });
+  // Determine maximum length across all polygons
+  const maxLength = lengths.length > 0 ? Math.max(...lengths) : 0;
+  // Draw disputed lines: filter those intersecting the country's bbox
+  const featureBbox = d3.geoBounds(feature);
+  const relevantLines = precomputedDisputed.filter((d) => intersects(featureBbox, d.bbox));
+  if (relevantLines.length > 0) {
+    svg
+      .selectAll('path.disputed')
+      .data(relevantLines.map((d) => d.feature))
+      .join('path')
+      .attr('class', 'disputed')
+      .attr('d', (d) => pathGen(d))
+      .attr('fill', 'none')
+      .attr('stroke', '#ff8080')
+      .attr('stroke-width', 1.5)
+      .attr('stroke-dasharray', '4,3');
+  }
+  // Animation: draw outlines using a single dash equal to the maximum
+  // length across polygons.  This ensures small islands draw at the
+  // same speed as the mainland.  After the animation completes,
+  // remove dash attributes and reveal the fill paths.
+  polyPaths.forEach(({ strokePath, fillPath, length }) => {
+    if (animate && maxLength > 0) {
+      // Apply a single dash equal to maxLength; offset initial dash
+      strokePath
+        .attr('stroke-dasharray', maxLength)
+        .attr('stroke-dashoffset', maxLength)
+        .transition()
+        .duration(durationMs)
+        .ease(d3.easeLinear)
+        .attr('stroke-dashoffset', 0)
+        .on('end', () => {
+          strokePath.attr('stroke-dasharray', null);
+          strokePath.attr('stroke-dashoffset', null);
+          if (fillPath) fillPath.attr('opacity', 1);
+        });
+    } else {
+      // Not animated: show stroke and fill immediately
+      strokePath.attr('stroke-dasharray', null);
+      strokePath.attr('stroke-dashoffset', null);
+      if (fillPath) fillPath.attr('opacity', 1);
+    }
+  });
 }
 
 /**

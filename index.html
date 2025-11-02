@@ -15,9 +15,16 @@
     -->
     <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3-geo-projection@4"></script>
-    <!-- Load PixiJS for WebGL rendering -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/8.0.2/pixi.min.js"></script>
-    <!-- Optional: Particle emitter for future effects (not yet used extensively) -->
+    <!-- Load PixiJS for WebGL rendering.  Use a stable 7.x release instead of 8.x to avoid
+         issues with uninitialised renderers in some environments.  Pixi v7 retains the
+         familiar Application API and blend mode constants used by this application.  If
+         you wish to upgrade to a newer version later, be sure to verify that
+         PIXI.Application creates a renderer and exposes a valid view.  See main.js for
+         additional runtime checks. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.2.4/pixi.min.js"></script>
+    <!-- Optional: Particle emitter for future effects (not yet used extensively).  This
+         library should match the major version of PixiJS; the v4 emitter is
+         compatible with Pixi v7. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi-particle-emitter/4.3.0/particle-emitter.min.js"></script>
     <script src="main.js"></script>
   </head>
