@@ -43,6 +43,19 @@ window.addEventListener('DOMContentLoaded', () => {
   inputEl = document.getElementById('country-input');
   suggestionsEl = document.getElementById('suggestions');
   drawingContainer = document.getElementById('drawing-container');
+
+  // Set up the responsive menu toggle for narrow screens.  On
+  // small viewports the controls panel is hidden by default and
+  // revealed when the user clicks the hamburger icon.  The menu
+  // toggle is ignored on larger screens where the controls are
+  // always visible.
+  const menuBtn = document.getElementById('menu-toggle');
+  const controlsPanel = document.getElementById('controls');
+  if (menuBtn && controlsPanel) {
+    menuBtn.addEventListener('click', () => {
+      controlsPanel.classList.toggle('open');
+    });
+  }
   loadData().catch((err) => {
     console.error('Error loading data:', err);
     showMessage('Failed to load map data. Check your connection.');

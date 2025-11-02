@@ -19,60 +19,89 @@
   </head>
   <body>
     <div id="app">
-      <div class="control-panel">
-        <!-- Country selector with suggestions -->
-        <label for="country-input">Select a country:</label>
-        <div class="input-wrapper">
-          <input
-            id="country-input"
-            type="text"
-            autocomplete="off"
-            placeholder="Type a country name..."
-          />
-          <!-- Suggestion list will be populated dynamically -->
-          <div id="suggestions" class="suggestions"></div>
+      <!-- Top bar: search and menu toggle -->
+      <div id="top-bar">
+        <div class="search-container">
+          <label for="country-input">Select a country:</label>
+          <div class="input-wrapper">
+            <input
+              id="country-input"
+              type="text"
+              autocomplete="off"
+              placeholder="Type a country name..."
+            />
+            <!-- Suggestion list will be populated dynamically -->
+            <div id="suggestions" class="suggestions"></div>
+          </div>
         </div>
-
+        <!-- Menu toggle for small screens -->
+        <button id="menu-toggle" class="menu-toggle" aria-label="Menu">&#9776;</button>
+      </div>
+      <!-- Controls: hidden behind menu on narrow screens -->
+      <div id="controls" class="controls">
         <!-- Stroke weight selector -->
-        <label for="stroke-weight">Stroke weight:</label>
-        <select id="stroke-weight">
-          <option value="light">Light</option>
-          <option value="medium" selected>Medium</option>
-          <option value="heavy">Heavy</option>
-        </select>
-
+        <div class="control-item">
+          <label for="stroke-weight">Stroke weight</label>
+          <select id="stroke-weight">
+            <option value="light">Light</option>
+            <option value="medium" selected>Medium</option>
+            <option value="heavy">Heavy</option>
+          </select>
+        </div>
         <!-- Stroke color picker -->
-        <label for="stroke-color">Stroke color:</label>
-        <input id="stroke-color" type="color" value="#ffffff" />
-
+        <div class="control-item">
+          <label for="stroke-color">Stroke color</label>
+          <input id="stroke-color" type="color" value="#ffffff" />
+        </div>
         <!-- Background color picker -->
-        <label for="background-color">Background:</label>
-        <input id="background-color" type="color" value="#000000" />
-
+        <div class="control-item">
+          <label for="background-color">Background</label>
+          <input id="background-color" type="color" value="#000000" />
+        </div>
         <!-- Animation toggle -->
-        <label class="animate-label">
-          <input type="checkbox" id="animate-outline" />
-          Animate
-        </label>
-
+        <div class="control-item toggle-item">
+          <label for="animate-outline">Animate</label>
+          <label class="switch">
+            <input type="checkbox" id="animate-outline" />
+            <span class="slider"></span>
+          </label>
+        </div>
         <!-- Fill toggle and color picker -->
-        <label class="fill-label">
-          <input type="checkbox" id="fill-enabled" /> Fill
-        </label>
-        <input id="fill-color" type="color" value="#ffffff" />
-
+        <div class="control-item toggle-item">
+          <label for="fill-enabled">Fill</label>
+          <label class="switch">
+            <input type="checkbox" id="fill-enabled" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="control-item">
+          <label for="fill-color">Fill color</label>
+          <input id="fill-color" type="color" value="#ffffff" />
+        </div>
         <!-- Line style selector -->
-        <label for="line-style">Line style:</label>
-        <select id="line-style">
-          <option value="solid" selected>Solid</option>
-          <option value="dashed">Dashed</option>
-          <option value="dotted">Dotted</option>
-        </select>
-
+        <div class="control-item">
+          <label for="line-style">Line style</label>
+          <select id="line-style">
+            <option value="solid" selected>Solid</option>
+            <option value="dashed">Dashed</option>
+            <option value="dotted">Dotted</option>
+          </select>
+        </div>
         <!-- Animation duration slider -->
-        <label for="animation-duration">Animation time:</label>
-        <input id="animation-duration" type="range" min="5" max="30" step="1" value="20" />
-        <span id="duration-display">20s</span>
+        <div class="control-item range-item">
+          <label for="animation-duration">Animation time</label>
+          <div class="range-wrapper">
+            <input
+              id="animation-duration"
+              type="range"
+              min="5"
+              max="30"
+              step="1"
+              value="20"
+            />
+            <span id="duration-display">20s</span>
+          </div>
+        </div>
       </div>
       <div id="drawing-container" class="drawing-container">
         <!-- The SVG drawing will be injected here -->
