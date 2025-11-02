@@ -115,6 +115,7 @@ window.addEventListener('DOMContentLoaded', () => {
   // leave the renderer undefined if WebGL initialisation fails, so
   // explicitly verify that both the renderer and view exist.
   try {
+    console.log('Attempting to initialise PixiJS');
     if (typeof PIXI !== 'undefined' && PIXI.Application) {
       // Manually set the width and height to avoid issues with the resizeTo
       // option in certain PixiJS versions.  We'll listen for window
@@ -133,6 +134,7 @@ window.addEventListener('DOMContentLoaded', () => {
         pixiApp = app;
         drawingContainer.appendChild(pixiApp.view);
         usePixi = true;
+        console.log('PixiJS initialised successfully', pixiApp);
         // Handle resizing: adjust the Pixi renderer to match the container
         const resizeObserver = new ResizeObserver(() => {
           const w = drawingContainer.clientWidth;
@@ -142,17 +144,20 @@ window.addEventListener('DOMContentLoaded', () => {
         resizeObserver.observe(drawingContainer);
       } else {
         console.error('PixiJS initialisation failed: renderer or view is undefined');
+        console.warn('Falling back to SVG renderer');
         pixiApp = null;
         usePixi = false;
       }
     } else {
       // PIXI is undefined; fall back to SVG renderer
       usePixi = false;
+      console.warn('PIXI is undefined; using SVG fallback');
     }
   } catch (e) {
     console.error('Failed to initialise PixiJS', e);
     pixiApp = null;
     usePixi = false;
+    console.warn('Using SVG fallback due to Pixi initialisation error');
   }
 
   // Set up the responsive menu toggle for narrow screens.  On
@@ -183,6 +188,10 @@ async function loadData() {
     fetch(COUNTRIES_URL).then((res) => res.json()),
     fetch(DISPUTED_URL).then((res) => res.json()),
   ]);
+  console.log('GeoJSON data loaded', {
+    countriesCount: cData && cData.features ? cData.features.length : 0,
+    disputedCount: dData && dData.features ? dData.features.length : 0,
+  });
   countriesData = cData;
   disputedData = dData;
 
@@ -310,6 +319,7 @@ function selectCountry(feature) {
   // successfully initialised use the WebGL renderer; otherwise use the
   // SVG fallback.  This allows the app to function even when the
   // PixiJS script fails to load or WebGL is unavailable.
+  console.log('Country selected', feature && feature.properties ? feature.properties.name : feature, 'usePixi:', usePixi);
   if (usePixi) {
     drawCountry(feature);
   } else {
@@ -362,6 +372,7 @@ function drawCountry(feature) {
   // with 20 px padding on each side.
   const { width, height } = drawingContainer.getBoundingClientRect();
   let projection;
+  let projectionType = 'equalEarth';
   try {
     const props = feature.properties || {};
     const normName = normalize(
@@ -378,6 +389,7 @@ function drawCountry(feature) {
       normName === 'united states of america'
     ) {
       projection = d3.geoAlbersUsa();
+      projectionType = 'albersUsa';
     } else if (
       isoA3 === 'RUS' ||
       normName === 'russia' ||
@@ -394,11 +406,15 @@ function drawCountry(feature) {
         midpoint = (minLon + maxLon) / 2;
       }
       projection = d3.geoEqualEarth().rotate([-midpoint, 0]);
+      projectionType = 'equalEarthRotated';
     } else {
       projection = d3.geoEqualEarth();
+      projectionType = 'equalEarth';
     }
   } catch (e) {
     projection = d3.geoEqualEarth();
+    projectionType = 'equalEarth';
+    console.error('Error determining projection, defaulting to equalEarth', e);
   }
   const padding = 20;
   if (typeof projection.fitExtent === 'function') {
@@ -535,6 +551,17 @@ function drawCountry(feature) {
     container.addChild(pd.lineGraphics);
   });
   pixiApp.stage.addChild(container);
+
+  // Log details about the draw preparation
+  console.log('Drawing with Pixi', {
+    theme: themeName,
+    projection: projectionType,
+    polygons: polyDatas.length,
+    totalLengths: polyDatas.map((pd) => pd.totalLength),
+    maxTotalLength,
+    animate,
+    perfMode,
+  });
 
   // Helper function to draw a partial path on a graphics object.  It
   // draws up to drawLength along the segment list.  If drawLength is
@@ -701,6 +728,8 @@ function drawCountryFallback(feature) {
   // Clear previous drawing and remove any loading message
   drawingContainer.innerHTML = '';
   clearMessage();
+
+  console.log('Using SVG fallback renderer');
 
   // Determine selected theme and UI settings
   const themeName = themeSelectEl ? themeSelectEl.value : 'wireframe';
