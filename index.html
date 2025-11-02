@@ -21,9 +21,15 @@
   <!-- d3-geo for geographic projections and utilities -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-geo/3.0.3/d3-geo.min.js" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-geo-projection/4.0.0/d3-geo-projection.min.js" defer></script>
-  <!-- Glow and drop shadow filters for Pixi -->
-  <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-glow@5.1.1/dist/filter-glow.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/@pixi/filter-drop-shadow@5.1.1/dist/filter-drop-shadow.min.js" defer></script>
+  <!-- PixiJS community filters bundle (adds GlowFilter, DropShadowFilter and others) -->
+  <!--
+    We previously attempted to include the individual @pixi/filter-glow and @pixi/filter-drop-shadow
+    packages via jsDelivr, however those UMD builds expect a CommonJS `exports` object which is
+    unavailable in the browser and consequently threw a `ReferenceError: exports is not defined`.
+    The pixi-filters bundle exposes all filters on the global PIXI.filters namespace and works
+    seamlessly in the browser.  See https://pixijs.download and the pixi-filters README for details.
+  -->
+  <script src="https://unpkg.com/pixi-filters@4.1.3/dist/pixi-filters.min.js" defer></script>
   <!-- Our main script -->
   <script src="main.js" defer></script>
 </head>

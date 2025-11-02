@@ -1,5 +1,5 @@
 /*
- * Country Outliner v1.2.0
+ * Country Outliner v1.2.1
  *
  * This script bootstraps the PixiJS-based renderer, loads geographic data,
  * builds the user interface, and orchestrates drawing animated country
@@ -222,10 +222,8 @@
     durationDisplay.textContent = durationSlider.value + 's';
     // Set initial theme
     state.theme = themes[themeSelect.value];
-    // Attempt to draw the first country if any
-    // Wait for buildCountryList to populate datalist
-  });
-
+    // Attempt to draw the first country if a value has been typed
+    // Note: drawCountry will be invoked when the user selects from the list.
   }
 
   // Build the datalist options based on loaded features and alias mapping
