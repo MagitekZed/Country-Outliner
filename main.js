@@ -389,24 +389,38 @@ function drawCountry(feature) {
   // duration rather than appearing instantly.
   const maxLength = lengths.length ? Math.max(...lengths) : 0;
 
+  // Decide dash array and offset values for animation.  For dashed or dotted
+  // lines, use the pattern during animation so the pattern appears while
+  // drawing.  For solid lines, animate as a single long dash equal to
+  // maxLength.  These values are reused for all polygons.
+  let dashArrayAnim;
+  let dashOffsetAnim;
+  if (linePattern) {
+    dashArrayAnim = linePattern;
+    dashOffsetAnim = maxLength;
+  } else {
+    dashArrayAnim = maxLength;
+    dashOffsetAnim = maxLength;
+  }
+
   // Apply stroke, fill and animation settings to each polygon path.
-  pathElements.forEach((p, i) => {
+  pathElements.forEach((p) => {
     p.attr('stroke', strokeColor)
       .attr('stroke-width', outlineWidth)
       .attr('fill', effectiveFill);
     if (animate && maxLength > 0) {
-      // Use the same dash length for all polygons to synchronise
-      // animation timing.  After the animation ends, apply the
-      // selected line style pattern.
-      p.attr('stroke-dasharray', maxLength)
-        .attr('stroke-dashoffset', maxLength)
+      // Set dash pattern and offset for the animation phase.  Using
+      // dashArrayAnim ensures dashed/dotted patterns are visible during
+      // drawing.
+      p.attr('stroke-dasharray', dashArrayAnim)
+        .attr('stroke-dashoffset', dashOffsetAnim)
         .transition()
         .duration(durationMs)
         .ease(d3.easeLinear)
         .attr('stroke-dashoffset', 0)
         .on('end', () => {
-          // Remove the animation dash attributes and apply the
-          // user-selected line pattern.  If no pattern is
+          // After animation finishes, remove the dashoffset and
+          // reapply the selected line style.  If no pattern is
           // selected, clear the dasharray.
           if (linePattern) {
             p.attr('stroke-dasharray', linePattern);
@@ -416,8 +430,7 @@ function drawCountry(feature) {
           p.attr('stroke-dashoffset', null);
         });
     } else {
-      // If animation is disabled, apply the user-selected line
-      // pattern immediately.
+      // If animation is disabled, apply the pattern immediately.
       if (linePattern) {
         p.attr('stroke-dasharray', linePattern);
       } else {
