@@ -6,31 +6,20 @@
     <title>Country Outline Viewer</title>
     <link rel="stylesheet" href="styles.css" />
     <!--
-      Load D3 and the geo projection library from a CDN.  These
-      scripts expose their content on the global `d3` object.  The
-      application script (main.js) relies on this global and does not
-      use ES module imports.  Loading external scripts via <script>
-      tags avoids potential CORS issues that can arise when importing
-      ES modules from remote domains in a file:// context.
+      This version of the Country Outline Viewer uses PixiJS v7 to render
+      outlines on a WebGL canvas.  The D3 library provides the
+      geographic projections and topology functions.  Scripts are loaded
+      via CDN and exposed on the global `d3` and `PIXI` objects.  See
+      main.js for details.
     -->
     <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3-geo-projection@4"></script>
-    <!-- Load PixiJS for WebGL rendering.  Use a stable 7.x release instead of 8.x to avoid
-         issues with uninitialised renderers in some environments.  Pixi v7 retains the
-         familiar Application API and blend mode constants used by this application.  If
-         you wish to upgrade to a newer version later, be sure to verify that
-         PIXI.Application creates a renderer and exposes a valid view.  See main.js for
-         additional runtime checks. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.2.4/pixi.min.js"></script>
-    <!-- Note: The particle emitter library has been removed from this release to
-         reduce network dependencies and avoid 404/ORB errors.  If you wish to add
-         particle effects in the future, include a compatible version of
-         pixi-particle-emitter locally in the repository or via a reliable CDN. -->
     <script src="main.js"></script>
   </head>
   <body>
     <div id="app">
-      <!-- Top bar: search and menu toggle -->
+      <!-- Top bar containing the search input and menu toggle -->
       <div id="top-bar">
         <div class="search-container">
           <label for="country-input">Select a country:</label>
@@ -41,16 +30,15 @@
               autocomplete="off"
               placeholder="Type a country name..."
             />
-            <!-- Suggestion list will be populated dynamically -->
             <div id="suggestions" class="suggestions"></div>
           </div>
         </div>
-        <!-- Menu toggle for small screens -->
-        <button id="menu-toggle" class="menu-toggle" aria-label="Menu">&#9776;</button>
+        <button id="menu-toggle" class="menu-toggle" aria-label="Menu">
+          &#9776;
+        </button>
       </div>
-      <!-- Controls: hidden behind menu on narrow screens -->
+      <!-- Collapsible controls panel.  Hidden by default on narrow screens -->
       <div id="controls" class="controls">
-        <!-- Theme selector -->
         <div class="control-item">
           <label for="theme-select">Theme</label>
           <select id="theme-select">
@@ -59,7 +47,6 @@
             <option value="blueprint">Blueprint</option>
           </select>
         </div>
-        <!-- Animation toggle -->
         <div class="control-item toggle-item">
           <label for="animate-outline">Animate</label>
           <label class="switch">
@@ -67,7 +54,6 @@
             <span class="slider"></span>
           </label>
         </div>
-        <!-- Optional: Performance mode toggle to reduce visual effects on slow devices -->
         <div class="control-item toggle-item">
           <label for="perf-mode">Performance mode</label>
           <label class="switch">
@@ -75,7 +61,6 @@
             <span class="slider"></span>
           </label>
         </div>
-        <!-- Animation duration slider -->
         <div class="control-item range-item">
           <label for="animation-duration">Animation time</label>
           <div class="range-wrapper">
@@ -91,9 +76,8 @@
           </div>
         </div>
       </div>
-      <div id="drawing-container" class="drawing-container">
-        <!-- The SVG drawing will be injected here -->
-      </div>
+      <!-- Container for the map.  PixiJS will append a canvas here.  -->
+      <div id="drawing-container" class="drawing-container"></div>
     </div>
   </body>
 </html>
